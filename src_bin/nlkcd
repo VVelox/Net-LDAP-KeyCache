@@ -1,0 +1,28 @@
+#!perl
+
+use strict;
+use warnings;
+use Net::LDAP::KeyCache;
+use TOML qw(from_toml);
+use File::Slurp;
+
+my $config_file = '/usr/local/etc/nlkcd.toml';
+my $config;
+my $err;
+eval {
+	my $config_raw = read_file($config_file);
+	( $config, $err ) = from_toml($config_raw);
+	unless ($config) {
+		die($err);
+	}
+};
+if ($@) {
+	die( 'Failed to read config, "' . $config_file . '"... ' . $@ );
+}
+
+use Data::Dumper;
+print Dumper($config);
+
+my $nlkc = Net::LDAP::KeyCache->new( %{$config} );
+
+$nlkc->start_server;
