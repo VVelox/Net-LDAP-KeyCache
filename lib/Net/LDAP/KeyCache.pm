@@ -37,8 +37,8 @@ Perhaps a little code snippet.
 
 =head1 METHODS
 
-=head2 new
-
+=head2 ne
+w
     - pid :: Location of the PID file.
         Default :: /var/run/nlkcd/pid
 
@@ -63,8 +63,7 @@ sub new {
 	#
 	if ( !defined( $opts{connect} ) ) {
 		die('$opts{connect} is undef');
-	}
-	elsif ( ref( $opts{connect} ) ne 'ARRAY' ) {
+	} elsif ( ref( $opts{connect} ) ne 'ARRAY' ) {
 		die( '$opts{connect} is a ' . ref( $opts{connect} . ' and not a ARRAY' ) );
 	}
 
@@ -93,7 +92,7 @@ sub new {
 	}
 
 	return $self;
-}
+} ## end sub new
 
 =head2 start_server
 
@@ -116,7 +115,7 @@ sub start_server {
 	);
 
 	$poe_kernel->run();
-}
+} ## end sub start_server
 
 sub server_started {
 	my ( $kernel, $heap ) = @_[ KERNEL, HEAP ];
@@ -127,7 +126,7 @@ sub server_started {
 		SuccessEvent => 'got_client',
 		FailureEvent => 'got_error',
 	);
-}
+} ## end sub server_started
 
 sub server_error {
 	my ( $heap, $syscall, $errno, $error ) = @_[ HEAP, ARG0 .. ARG2 ];
@@ -160,7 +159,7 @@ sub session_spawn {
 		args => [$socket],
 		heap => { self => $self, processing => 0 },
 	);
-}
+} ## end sub session_spawn
 
 # starts the session and setup handlers referenced in session_spawn
 sub server_session_start {
@@ -194,8 +193,7 @@ sub server_session_input {
 		my $error = { status => 'error', error => $@ };
 		$heap->{client}->put( encode_json($error) );
 		return;
-	}
-	elsif ( !defined($json) ) {
+	} elsif ( !defined($json) ) {
 		my $error = { status => 'error', error => 'parsing JSON returned undef' };
 		$heap->{client}->put( encode_json($error) );
 		return;
@@ -207,21 +205,22 @@ sub server_session_input {
 		return;
 	}
 
+	# bad idea, don't use this in production
+	my $make_it_pretty = 0;
+	if ( !defined( $json->{make_it_pretty} ) ) {
+		$json->{make_it_pretty} = 0;
+	}
+
 	if ( $json->{command} eq 'fetch' ) {
 		if ( !defined( $json->{var} ) ) {
 			my $error = { status => 'error', error => '$json->{var} is undef' };
 			$heap->{client}->put( encode_json($error) );
 			return;
-		}elsif ( !defined( $json->{val} ) ) {
+		} elsif ( !defined( $json->{val} ) ) {
 			my $error = { status => 'error', error => '$json->{val} is undef' };
 			$heap->{client}->put( encode_json($error) );
 			return;
 		}
-#		elsif ( !defined( $json->{map_to} ) ) {
-#			my $error = { status => 'error', error => '$json->{map_to} is undef' };
-#			$heap->{client}->put( encode_json($error) );
-#			return;
-#		}
 
 		$heap->{processing} = 1;
 
@@ -234,19 +233,20 @@ sub server_session_input {
 				got_child_signal => \&fetch_child_signal,
 			},
 			heap => {
-				self         => $heap->{self},
-				client       => $heap->{client},
-				session_heap => $heap,
-				stdout       => '',
-				stderr       => '',
-				var          => $json->{var},
-				val          => $json->{val},
-				map_to       => $json->{map_to},
-				search       => $json->{var} . '=' . $json->{val},
+				self           => $heap->{self},
+				client         => $heap->{client},
+				session_heap   => $heap,
+				stdout         => '',
+				stderr         => '',
+				var            => $json->{var},
+				val            => $json->{val},
+				map_to         => $json->{map_to},
+				make_it_pretty => $json->{make_it_pretty},
+				search         => $json->{var} . '=' . $json->{val},
 			},
 		);
-	}
-}
+	} ## end if ( $json->{command} eq 'fetch' )
+} ## end sub server_session_input
 
 sub server_session_error {
 	my ( $heap, $syscall, $errno, $error ) = @_[ HEAP, ARG0 .. ARG2 ];
@@ -287,7 +287,7 @@ sub fetch_start {
 	$_[HEAP]{children_by_pid}{ $child->PID } = $child;
 
 	#print( "Child pid ", $child->PID, " started as wheel ", $child->ID, ".\n" );
-}
+} ## end sub fetch_start
 
 sub fetch_child_stdout {
 	my ( $stdout_line, $wheel_id ) = @_[ ARG0, ARG1 ];
@@ -312,7 +312,7 @@ sub fetch_child_close {
 	my $time   = localtime;
 	my $search = $_[HEAP]{search};
 	$_[HEAP]{self}{time_cached_by_search}{$search} = $time;
-	my $found=0;
+	my $found = 0;
 	eval {
 		my ( $fh, $filename ) = tempfile();
 		print $fh $_[HEAP]{stdout};
@@ -332,13 +332,12 @@ sub fetch_child_close {
 
 			if ( !defined( $_[HEAP]{self}{cache_by_search}{$search} ) ) {
 				$_[HEAP]{self}{cache_by_search}{$search} = { $entry->dn => $entry_hash, };
-			}
-			else {
+			} else {
 				$_[HEAP]{self}{cache_by_search}{$search}{ $entry->dn } = $entry_hash;
 			}
 
 			$found++;
-		}
+		} ## end while ( not $ldif->eof() )
 	};
 	if ($@) {
 		warn($@);
@@ -346,13 +345,17 @@ sub fetch_child_close {
 		$_[HEAP]{session_heap}{client}->put( encode_json($error) );
 	}
 
-	eval{
-		if ($found > 0) {
+	eval {
+		if ( $found > 0 ) {
 			my $results = { status => 'found', results => $_[HEAP]{self}{cache_by_search}{$search} };
 			$_[HEAP]{session_heap}{client}->put( encode_json($results) );
-		}else {
+		} else {
 			my $results = { status => 'notfound', results => {} };
-			$_[HEAP]{session_heap}{client}->put( encode_json($results) );
+			if ($_[HEAP]{session_heap}{make_it_pretty}) {
+				$_[HEAP]{session_heap}{client}->put( encode_json($results) );
+			}else {
+				$_[HEAP]{session_heap}{client}->put( encode_json($results) );
+			}
 		}
 	};
 	if ($@) {
@@ -371,7 +374,7 @@ sub fetch_child_close {
 
 	#print "pid ", $child->PID, " closed all pipes.\n";
 	delete $_[HEAP]{children_by_pid}{ $child->PID };
-}
+} ## end sub fetch_child_close
 
 sub fetch_child_signal {
 
@@ -384,7 +387,7 @@ sub fetch_child_signal {
 	$_[HEAP]{session_heap}{processing} = 0;
 
 	delete $_[HEAP]{children_by_wid}{ $child->ID };
-}
+} ## end sub fetch_child_signal
 
 =head1 AUTHOR
 

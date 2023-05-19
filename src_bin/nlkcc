@@ -1,0 +1,98 @@
+#!perl
+
+use strict;
+use warnings;
+use IO::Socket::UNIX;
+use Getopt::Long;
+use JSON;
+
+# set the socket path and then check if one is specied via ENV
+my $socket_path = '/var/run/nlkcd/socket';
+if ( defined( $ENV{nlkcd_socket} ) ) {
+	$socket_path = $ENV{nlkcd_socket};
+}
+
+sub version {
+	print "nlkcc v. 0.0.1\n";
+}
+
+sub read_socket_line {
+	my ($socket) = @_;
+
+	my $data = '';
+
+	my $found_eol;
+	while ( $socket->atmark && !$found_eol ) {
+		my $tmpdata;
+		$socket->read( $tmpdata, 1 );
+		if ( $tmpdata eq "\n" ) {
+			$found_eol = 1;
+		} else {
+		}
+		{
+			$data = $data . $tmpdata;
+		}
+	} ## end while ( $socket->atmark && !$found_eol )
+
+	return $data;
+} ## end sub read_socket_line
+
+my $key = undef;
+my $val = undef;
+my $help;
+my $version;
+my $verbose;
+GetOptions(
+	'h'       => \$help,
+	'help'    => \$help,
+	'key=s'   => \$key,
+	'val=s'   => \$val,
+	'V'       => \$verbose,
+	'version' => \$version,
+	's=s'     => \$socket_path,
+);
+
+if ($version) {
+	version;
+	exit;
+}
+
+if ($help) {
+	version;
+
+	print '
+--key <key>  The key to lookup.
+
+--val <val>  The value to lookup.
+
+-s <sock>    The unix socket to connect to.
+
+-V           Verbose.
+-
+';
+} ## end if ($help)
+my $socket;
+eval { $socket = IO::Socket::UNIX->new( Peer => $socket_path, Type => SOCK_STREAM(), Timeout => 10 ) or die $@; };
+if ($@) {
+	die( 'Failed to connect to "' . $socket_path . '" ... ' . $@ );
+}
+
+my $header = read_socket_line($socket);
+if ($verbose) {
+	print 'Recieved: ' . $header;
+}
+
+my $command = encode_json( { command => 'fetch', 'var' => $key, 'val' => $val } ) . "\n";
+$socket->send($command);
+if ($verbose) {
+	print 'Sent: ' . $command;
+}
+
+my $data = read_socket_line($socket);
+
+if ($verbose) {
+	print 'Recieved: ';
+}
+print $data;
+
+$socket->close;
