@@ -250,9 +250,9 @@ sub server_session_input {
 		# use the cached search if possible
 		my $search = '(' . $json->{var} . '=' . $json->{val} . ')';
 		if (   defined( $heap->{self}{cache_by_search}{$search} )
-			&& defined( $heap->{self}{time_cache_by_search}{$search} ) )
+			&& defined( $heap->{self}{time_cached_by_search}{$search} ) )
 		{
-			my $time_diff = time - $heap->{self}{time_cache_by_search}{$search};
+			my $time_diff = time - $heap->{self}{time_cached_by_search}{$search};
 			if ( $time_diff <= $heap->{self}{cache_time} ) {
 				$heap->{self}{stats}{hits}++;
 				my $results = { status => 'found', results => $heap->{self}{cache_by_search}{$search} };
@@ -260,7 +260,9 @@ sub server_session_input {
 				return;
 			}
 			$heap->{self}{stats}{misses}++;
-		} ## end if ( defined( $heap->{self}{cache_by_search...}))
+		} else {
+			$heap->{self}{stats}{misses}++;
+		}
 
 		$heap->{processing} = 1;
 		$heap->{self}{stats}{processing}++;
@@ -301,9 +303,9 @@ sub server_session_input {
 
 		# use the cached search if possible
 		if (   defined( $heap->{self}{cache_by_search}{$search} )
-			&& defined( $heap->{self}{time_cache_by_search}{$search} ) )
+			&& defined( $heap->{self}{time_cached_by_search}{$search} ) )
 		{
-			my $time_diff = time - $heap->{self}{time_cache_by_search}{$search};
+			my $time_diff = time - $heap->{self}{time_cached_by_search}{$search};
 			if ( $time_diff <= $heap->{self}{cache_time} ) {
 				$heap->{self}{stats}{hits}++;
 				my $results = { status => 'found', results => $heap->{self}{cache_by_search}{$search} };
@@ -311,7 +313,9 @@ sub server_session_input {
 				return;
 			}
 			$heap->{self}{stats}{misses}++;
-		} ## end if ( defined( $heap->{self}{cache_by_search...}))
+		} else {
+			$heap->{self}{stats}{misses}++;
+		}
 
 		$heap->{processing} = 1;
 		$heap->{self}{stats}{processing}++;
@@ -346,16 +350,16 @@ sub server_session_input {
 		};
 		$heap->{client}->put( encode_json($results) );
 		return;
-	}elsif ( $json->{command} eq 'stats' ) {
+	} elsif ( $json->{command} eq 'stats' ) {
 		$heap->{self}{stats}{commands}{stats}++;
-		$heap->{self}{stats}{uptime}=time - $heap->{self}{start_time};
+		$heap->{self}{stats}{uptime} = time - $heap->{self}{start_time};
 		my @searches = keys( %{ $heap->{self}{cache_by_search} } );
-		$heap->{self}{stats}{cached_searches}=$#searches + 1;
-		my @DNs= keys( %{ $heap->{self}{cache_by_dn} } );
-		$heap->{self}{stats}{cached_DNs}=$#DNs + 1;
-		my $results  = {
-						status     => 'ok',
-						stats       => $heap->{self}{stats},
+		$heap->{self}{stats}{cached_searches} = $#searches + 1;
+		my @DNs = keys( %{ $heap->{self}{cache_by_dn} } );
+		$heap->{self}{stats}{cached_DNs} = $#DNs + 1;
+		my $results = {
+			status => 'ok',
+			stats  => $heap->{self}{stats},
 		};
 		$heap->{client}->put( encode_json($results) );
 		return;
@@ -506,11 +510,9 @@ sub fetch_child_signal {
 	# May have been reaped by on_child_close().
 	return unless defined $child;
 
-	if (
-		$_[HEAP]{session_heap}{processing} >= 1
-		) {
+	if ( $_[HEAP]{session_heap}{processing} >= 1 ) {
 		$_[HEAP]{session_heap}{processing} = 0;
-		$_[HEAP]{session_heap}{self}{stats}{processing}--
+		$_[HEAP]{session_heap}{self}{stats}{processing}--;
 	}
 
 	delete $_[HEAP]{children_by_wid}{ $child->ID };

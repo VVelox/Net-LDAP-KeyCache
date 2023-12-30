@@ -44,6 +44,7 @@ my $version;
 my $verbose;
 my $stats;
 my $search;
+my $list_searches;
 GetOptions(
 	'h'        => \$help,
 	'help'     => \$help,
@@ -54,6 +55,7 @@ GetOptions(
 	'socket=s' => \$socket_path,
 	'stats'    => \$stats,
 	's=s'      => \$search,
+	'ls'       => \$list_searches,
 );
 
 if ($version) {
@@ -93,6 +95,8 @@ if ( defined($key) && defined($val) ) {
 	$command = encode_json( { command => 'search', 'search' => $search, } ) . "\n";
 } elsif ($stats) {
 	$command = encode_json( { command => 'stats' } ) . "\n";
+} elsif ($list_searches) {
+	$command = encode_json( { command => 'list_searches' } ) . "\n";
 }
 
 $socket->send($command);
