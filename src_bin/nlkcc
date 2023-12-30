@@ -42,14 +42,18 @@ my $val = undef;
 my $help;
 my $version;
 my $verbose;
+my $stats;
+my $search;
 GetOptions(
-	'h'       => \$help,
-	'help'    => \$help,
-	'key=s'   => \$key,
-	'val=s'   => \$val,
-	'V'       => \$verbose,
-	'version' => \$version,
-	's=s'     => \$socket_path,
+	'h'        => \$help,
+	'help'     => \$help,
+	'key=s'    => \$key,
+	'val=s'    => \$val,
+	'V'        => \$verbose,
+	'version'  => \$version,
+	'socket=s' => \$socket_path,
+	'stats'    => \$stats,
+	's=s'      => \$search,
 );
 
 if ($version) {
@@ -82,7 +86,15 @@ if ($verbose) {
 	print 'Recieved: ' . $header;
 }
 
-my $command = encode_json( { command => 'fetch', 'var' => $key, 'val' => $val } ) . "\n";
+my $command;
+if ( defined($key) && defined($val) ) {
+	$command = encode_json( { command => 'fetch', 'var' => $key, 'val' => $val } ) . "\n";
+} elsif ( defined($search) ) {
+	$command = encode_json( { command => 'search', 'search' => $search, } ) . "\n";
+} elsif ($stats) {
+	$command = encode_json( { command => 'stats' } ) . "\n";
+}
+
 $socket->send($command);
 if ($verbose) {
 	print 'Sent: ' . $command;

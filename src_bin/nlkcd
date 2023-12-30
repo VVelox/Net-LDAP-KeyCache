@@ -5,8 +5,49 @@ use warnings;
 use Net::LDAP::KeyCache;
 use TOML qw(from_toml);
 use File::Slurp;
+use Getopt::Long;
+use Pod::Usage;
+use Net::Server::Daemonize qw(daemonize);
+use JSON;
 
+sub version {
+	print 'nlkcd v. ' . $Net::LDAP::KeyCache::VERSION . "\n";
+}
+
+sub help {
+	&version;
+
+	print "\n\n";
+
+	pod2usage( -exitval => 255, -verbose => 2, -output => \*STDOUT );
+}
+
+my $help;
+my $version;
 my $config_file = '/usr/local/etc/nlkcd.toml';
+my $daemonize;
+my $user  = 'root';
+my $group = 'wheel';
+GetOptions(
+	'version'  => \$version,
+	'v'        => \$version,
+	'help'     => \$help,
+	'h'        => \$help,
+	'config=s' => \$config_file,
+	'D'        => \$daemonize,
+	'g=s'      => \$group,
+	'u=s'      => \$user,
+);
+
+# print version or help if requested
+if ($help) {
+	&help;
+}
+if ($version) {
+	&version;
+	exit 42;
+}
+
 my $config;
 my $err;
 eval {
@@ -20,9 +61,24 @@ if ($@) {
 	die( 'Failed to read config, "' . $config_file . '"... ' . $@ );
 }
 
-use Data::Dumper;
-print Dumper($config);
+if ($daemonize) {
+	$config->{daemonize} = 1;
+} elsif ( !$daemonize && defined( $config->{daemonize} ) ) {
+	delete( $config->{daemonize} );
+}
 
 my $nlkc = Net::LDAP::KeyCache->new( %{$config} );
+
+$nlkc->verbose( 'info', 'nlkcd ' . $Net::LDAP::KeyCache::VERSION . ' starting...' );
+$nlkc->verbose( 'info', 'PID: ' . $nlkc->{pid} );
+$nlkc->verbose( 'info', 'Socket: ' . $nlkc->{socket} );
+$nlkc->verbose( 'info', 'Base Search: ' . $nlkc->{base_search} );
+$nlkc->verbose( 'info', 'Connect: ' . encode_json( $nlkc->{connect} ) );
+
+if ($daemonize) {
+	$nlkc->verbose( 'info', 'Daemonizing...' );
+	$nlkc->{daemonized} = 1;
+	daemonize( $user, $group, $nlkc->{pid} );
+}
 
 $nlkc->start_server;

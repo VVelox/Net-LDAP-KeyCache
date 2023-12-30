@@ -11,6 +11,7 @@ use POE::Wheel::ReadWrite;
 use Socket;
 use File::Temp qw/ tempfile tempdir /;
 use Net::LDAP::LDIF;
+use Sys::Syslog;
 
 =head1 NAME
 
@@ -32,13 +33,13 @@ Perhaps a little code snippet.
 
     use Net::LDAP::KeyCache;
 
-    my $foo = Net::LDAP::KeyCache->new();
-    ...
+    my $nlkcd = Net::LDAP::KeyCache->new();
+    $nlkcd->start_server;
 
 =head1 METHODS
 
-=head2 ne
-w
+=head2 new
+
     - pid :: Location of the PID file.
         Default :: /var/run/nlkcd/pid
 
@@ -80,11 +81,29 @@ sub new {
 		time_cached_by_dn     => {},
 		cache_by_search       => {},
 		time_cached_by_search => {},
-		cache_time            => 300,
+		start_time            => time,
+		stats                 => {
+			hits        => 0,
+			misses      => 0,
+			connected   => 0,
+			disconnects => 0,
+			commands    => {
+				fetch         => 0,
+				search        => 0,
+				list_searches => 0,
+				stats         => 0,
+				unknown       => 0,
+			},
+			decode_fail        => 0,
+			already_processing => 0,
+			processing         => 0,
+		},
+		cache_time => 300,
+		daemonized => undef,
 	};
 	bless $self;
 
-	my @to_merge = ( 'pid', 'socket', 'base_search', 'cache_time' );
+	my @to_merge = ( 'pid', 'socket', 'base_search', 'cache_time', );
 	foreach my $item (@to_merge) {
 		if ( defined( $opts{$item} ) ) {
 			$self->{$item} = $opts{item};
@@ -169,8 +188,9 @@ sub server_session_start {
 		InputEvent => 'got_client_input',
 		ErrorEvent => 'got_client_error',
 	);
-	$heap->{client}->put( "Connected to Net::LDAP::KeyCache v. " . $Net::LDAP::KeyCache::VERSION );
-}
+	$heap->{client}->put( '{"connected_to": "Net::LDAP::KeyCache v. ' . $Net::LDAP::KeyCache::VERSION . '"}' );
+	$heap->{self}{stats}{connected}++;
+} ## end sub server_session_start
 
 # handle line inputs
 sub server_session_input {
@@ -182,6 +202,7 @@ sub server_session_input {
 	}
 
 	if ( $heap->{processing} ) {
+		$heap->{self}{stats}{already_processing}++;
 		my $error = { status => 'error', error => 'already processing a request' };
 		$heap->{client}->put( encode_json($error) );
 		return;
@@ -190,10 +211,12 @@ sub server_session_input {
 	my $json;
 	eval { $json = decode_json($input); };
 	if ($@) {
+		$heap->{self}{stats}{decode_fail}++;
 		my $error = { status => 'error', error => $@ };
 		$heap->{client}->put( encode_json($error) );
 		return;
 	} elsif ( !defined($json) ) {
+		$heap->{self}{stats}{decode_fail}++;
 		my $error = { status => 'error', error => 'parsing JSON returned undef' };
 		$heap->{client}->put( encode_json($error) );
 		return;
@@ -212,6 +235,8 @@ sub server_session_input {
 	}
 
 	if ( $json->{command} eq 'fetch' ) {
+		$heap->{self}{stats}{commands}{fetch}++;
+
 		if ( !defined( $json->{var} ) ) {
 			my $error = { status => 'error', error => '$json->{var} is undef' };
 			$heap->{client}->put( encode_json($error) );
@@ -222,7 +247,23 @@ sub server_session_input {
 			return;
 		}
 
+		# use the cached search if possible
+		my $search = '(' . $json->{var} . '=' . $json->{val} . ')';
+		if (   defined( $heap->{self}{cache_by_search}{$search} )
+			&& defined( $heap->{self}{time_cache_by_search}{$search} ) )
+		{
+			my $time_diff = time - $heap->{self}{time_cache_by_search}{$search};
+			if ( $time_diff <= $heap->{self}{cache_time} ) {
+				$heap->{self}{stats}{hits}++;
+				my $results = { status => 'found', results => $heap->{self}{cache_by_search}{$search} };
+				$heap->{client}->put( encode_json($results) );
+				return;
+			}
+			$heap->{self}{stats}{misses}++;
+		} ## end if ( defined( $heap->{self}{cache_by_search...}))
+
 		$heap->{processing} = 1;
+		$heap->{self}{stats}{processing}++;
 
 		POE::Session->create(
 			inline_states => {
@@ -238,20 +279,100 @@ sub server_session_input {
 				session_heap   => $heap,
 				stdout         => '',
 				stderr         => '',
-				var            => $json->{var},
-				val            => $json->{val},
-				map_to         => $json->{map_to},
 				make_it_pretty => $json->{make_it_pretty},
-				search         => $json->{var} . '=' . $json->{val},
+				search         => $search,
 			},
 		);
-	} ## end if ( $json->{command} eq 'fetch' )
+	} elsif ( $json->{command} eq 'search' ) {
+		$heap->{self}{stats}{commands}{search}++;
+		if ( !defined( $json->{search} ) ) {
+			my $error = { status => 'error', error => '$json->{search} is undef' };
+			$heap->{client}->put( encode_json($error) );
+			return;
+		}
+
+		my $search = $json->{search};
+		if ( $search !~ /^\(/ ) {
+			$search = '(' . $search;
+		}
+		if ( $search !~ /\)$/ ) {
+			$search = $search . ')';
+		}
+
+		# use the cached search if possible
+		if (   defined( $heap->{self}{cache_by_search}{$search} )
+			&& defined( $heap->{self}{time_cache_by_search}{$search} ) )
+		{
+			my $time_diff = time - $heap->{self}{time_cache_by_search}{$search};
+			if ( $time_diff <= $heap->{self}{cache_time} ) {
+				$heap->{self}{stats}{hits}++;
+				my $results = { status => 'found', results => $heap->{self}{cache_by_search}{$search} };
+				$heap->{client}->put( encode_json($results) );
+				return;
+			}
+			$heap->{self}{stats}{misses}++;
+		} ## end if ( defined( $heap->{self}{cache_by_search...}))
+
+		$heap->{processing} = 1;
+		$heap->{self}{stats}{processing}++;
+
+		POE::Session->create(
+			inline_states => {
+				_start           => \&fetch_start,
+				got_child_stdout => \&fetch_child_stdout,
+				got_child_stderr => \&fetch_child_stderr,
+				got_child_close  => \&fetch_child_close,
+				got_child_signal => \&fetch_child_signal,
+			},
+			heap => {
+				self           => $heap->{self},
+				client         => $heap->{client},
+				session_heap   => $heap,
+				stdout         => '',
+				stderr         => '',
+				make_it_pretty => $json->{make_it_pretty},
+				search         => $search,
+			},
+		);
+	} elsif ( $json->{command} eq 'list_searches' ) {
+		$heap->{self}{stats}{commands}{list_searches}++;
+		my @searches = keys( %{ $heap->{self}{cache_by_search} } );
+		my $results  = {
+			status     => 'ok',
+			searches   => \@searches,
+			when       => $heap->{self}{time_cached_by_search},
+			time       => time,
+			cache_time => $heap->{self}{cache_time}
+		};
+		$heap->{client}->put( encode_json($results) );
+		return;
+	}elsif ( $json->{command} eq 'stats' ) {
+		$heap->{self}{stats}{commands}{stats}++;
+		$heap->{self}{stats}{uptime}=time - $heap->{self}{start_time};
+		my @searches = keys( %{ $heap->{self}{cache_by_search} } );
+		$heap->{self}{stats}{cached_searches}=$#searches + 1;
+		my @DNs= keys( %{ $heap->{self}{cache_by_dn} } );
+		$heap->{self}{stats}{cached_DNs}=$#DNs + 1;
+		my $results  = {
+						status     => 'ok',
+						stats       => $heap->{self}{stats},
+		};
+		$heap->{client}->put( encode_json($results) );
+		return;
+	} else {
+		$heap->{self}{stats}{commands}{unknown}++;
+		my $results = { status => 'unknown command', };
+		$heap->{client}->put( encode_json($results) );
+		return;
+	}
 } ## end sub server_session_input
 
 sub server_session_error {
 	my ( $heap, $syscall, $errno, $error ) = @_[ HEAP, ARG0 .. ARG2 ];
 	$error = "Normal disconnection." unless $errno;
 	warn "Server session encountered $syscall error $errno: $error\n";
+	$heap->{self}{stats}{connected}--;
+	$heap->{self}{stats}{disconnects}++;
 	delete $heap->{client};
 }
 
@@ -269,7 +390,7 @@ sub fetch_start {
 		push( @args, $item );
 	}
 
-	push( @args, '(&' . $heap->{session_heap}{self}{base_search} . '(' . $heap->{var} . '=' . $heap->{val} . '))' );
+	push( @args, '(&' . $heap->{session_heap}{self}{base_search} . $heap->{search} . ')' );
 
 	my $child = POE::Wheel::Run->new(
 		Program     => \@args,
@@ -309,7 +430,7 @@ sub fetch_child_close {
 	my $wheel_id = $_[ARG0];
 	my $child    = delete $_[HEAP]{children_by_wid}{$wheel_id};
 
-	my $time   = localtime;
+	my $time   = time;
 	my $search = $_[HEAP]{search};
 	$_[HEAP]{self}{time_cached_by_search}{$search} = $time;
 	my $found = 0;
@@ -351,9 +472,9 @@ sub fetch_child_close {
 			$_[HEAP]{session_heap}{client}->put( encode_json($results) );
 		} else {
 			my $results = { status => 'notfound', results => {} };
-			if ($_[HEAP]{session_heap}{make_it_pretty}) {
+			if ( $_[HEAP]{session_heap}{make_it_pretty} ) {
 				$_[HEAP]{session_heap}{client}->put( encode_json($results) );
-			}else {
+			} else {
 				$_[HEAP]{session_heap}{client}->put( encode_json($results) );
 			}
 		}
@@ -364,6 +485,7 @@ sub fetch_child_close {
 
 	# we are done processing the request at this point
 	$_[HEAP]{session_heap}{processing} = 0;
+	$_[HEAP]{session_heap}{self}{stats}{processing}--;
 
 	# May have been reaped by on_child_signal().
 	unless ( defined $child ) {
@@ -384,10 +506,96 @@ sub fetch_child_signal {
 	# May have been reaped by on_child_close().
 	return unless defined $child;
 
-	$_[HEAP]{session_heap}{processing} = 0;
+	if (
+		$_[HEAP]{session_heap}{processing} >= 1
+		) {
+		$_[HEAP]{session_heap}{processing} = 0;
+		$_[HEAP]{session_heap}{self}{stats}{processing}--
+	}
 
 	delete $_[HEAP]{children_by_wid}{ $child->ID };
 } ## end sub fetch_child_signal
+
+sub verbose {
+	my ( $self, $level, $string ) = @_;
+
+	if ( !defined($string) || $string eq '' ) {
+		return;
+	}
+
+	if ( !defined($level) ) {
+		$level = 'info';
+	}
+
+	openlog( 'nlkcd', undef, 'daemon' );
+	syslog( $level, $string );
+	closelog();
+	if ( !$self->{daemonized} ) {
+		print $string. "\n";
+	}
+
+	return;
+} ## end sub verbose
+
+=head1 SOCKET INTERFACE
+
+The socket interface is JSON based. Upon connecting it returns...
+
+    {"connected_to": "Net::LDAP::KeyCache v. 0.0.1"}
+
+It will then wait for a command.
+
+=head2 COMMANDS
+
+=head3 fetch
+
+The fetch command does a basic equality search.
+
+Both are required.
+
+    - var :: LDAP attribute to search for.
+        - Default :: undef.
+
+    - val :: Value to search for.
+        - Default :: undef.
+
+Example...
+
+    {"command":"fetch","var":"uid","val":"foo"}
+
+=head3 search
+
+Runs the specified LDAP search. This is will be joined
+with the base search as to form a and statement.
+
+If the search does not start or end with () it is added.
+
+    - search :: LDAP search string.
+        - Default :: undef.
+
+Example...
+
+    {"command":"search","search":"uid=kitsune",}
+
+=head3 list_searches
+
+Returns a data on the current cache.
+
+Example...
+
+    {"command":"search","search":"uid=kitsune",}
+
+The results returnt the following keys.
+
+    - time :: Current unix time of the system it is running on.
+
+    - searches :: A array of cached searches cached searches.
+
+    - cache_time :: Length for how long a cached search is considered valid.
+
+    - when :: A hash whose keys are the values from the array searches
+            the values are the keys are the time at which that search was
+            ran in unix time.
 
 =head1 AUTHOR
 
@@ -416,10 +624,6 @@ You can also look for information at:
 =item * RT: CPAN's request tracker (report bugs here)
 
 L<https://rt.cpan.org/NoAuth/Bugs.html?Dist=Net-LDAP-KeyCache>
-
-=item * CPAN Ratings
-
-L<https://cpanratings.perl.org/d/Net-LDAP-KeyCache>
 
 =item * Search CPAN
 
