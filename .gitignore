@@ -35,3 +35,4 @@ inc/
 /*.zip
 bin/nlkcd
 bin/nlkcc
+bin/mojo_nlkcc
