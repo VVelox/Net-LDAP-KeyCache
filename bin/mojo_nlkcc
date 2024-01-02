@@ -1,4 +1,4 @@
-#!perl
+#!/usr/local/bin/perl
 
 use Mojolicious::Lite -signatures;
 use File::Slurp;
