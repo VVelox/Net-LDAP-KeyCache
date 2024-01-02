@@ -1,0 +1,17 @@
+#!perl
+
+use Mojolicious::Lite -signatures;
+
+get '/*' => sub ($c) {
+        the_stuff($c);
+};
+get '/' => sub ($c) {
+        the_stuff($c);
+};
+
+sub the_stuff {
+        my $c         = $_[0];
+        my $remote_ip = $c->{tx}{original_remote_address};
+}
+
+app->start;

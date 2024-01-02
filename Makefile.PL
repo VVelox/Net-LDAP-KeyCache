@@ -11,7 +11,7 @@ my %WriteMakefileArgs = (
 	LICENSE            => 'gpl_2',
 	MIN_PERL_VERSION   => '5.006',
 	INST_SCRIPT        => 'bin',
-	EXE_FILES          => [ 'src_bin/nlkcd', 'src_bin/nlkcc' ],
+	EXE_FILES          => [ 'src_bin/nlkcd', 'src_bin/nlkcc', 'src_bin/mojo_nlkcc' ],
 	CONFIGURE_REQUIRES => {
 		'ExtUtils::MakeMaker' => '0',
 	},
@@ -26,6 +26,9 @@ my %WriteMakefileArgs = (
 		'Net::Server::Daemonize' => '0',
 		'File::Slurp'            => '0',
 		'Sys::Syslog'            => '0',
+		'Web::ACL'               => '0.0.1',
+		'Mojolicious::Lite'      => '0',
+		'YAML::XS'               => '0',
 	},
 	dist       => { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
 	clean      => { FILES    => 'Net-LDAP-KeyCache-*' },
@@ -39,7 +42,6 @@ my %WriteMakefileArgs = (
 			},
 		},
 	}
-
 );
 
 # Compatibility with old versions of ExtUtils::MakeMaker
