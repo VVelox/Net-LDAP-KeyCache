@@ -1,5 +1,59 @@
 #!perl
 
+=head1 NAME
+
+nlkcd - LDAP caching daemon with a JSON socket interface.
+
+=head1 SYNOPSIS
+
+nlkcd [B<-D>] [B<--config> <config>] [B<-g> <group>] [B<-u> <user>]
+
+nlkcd (B<-h>|B<--help>)
+
+nlkcd (B<-v>|B<--version>)
+
+=head1 DESCRIPTION
+
+Starts up L<Net::LDAP::KeyCache> and for more information
+on the socket protocol, see the docs for it.
+
+=head1 FLAGS
+
+=head2 -D
+
+Daemonize.
+
+=head2 --config <config>
+
+The TOML config to use.
+
+The file is read in, parsed, and the resulting hash used for
+for initializing L<Net::LDAP::KeyCache> via the new method.
+
+Default :: /usr/local/etc/nlkcd.toml
+
+=head2 -g <group>
+
+The group to use.
+
+Default :: wheel
+
+=head2 -u <user>
+
+The default user to use.
+
+Default :: root
+
+=head2 (-h|--help)
+
+Either prints the help info.
+
+=head2 (-v|--version)
+
+Either pritns the version info.
+
+=cut
+
 use strict;
 use warnings;
 use Net::LDAP::KeyCache;
@@ -42,10 +96,11 @@ GetOptions(
 # print version or help if requested
 if ($help) {
 	&help;
+	exit 255;
 }
 if ($version) {
 	&version;
-	exit 42;
+	exit 255;
 }
 
 my $config;

@@ -1,10 +1,74 @@
 #!perl
 
+=head1 NAME
+
+nlkcc - Client for talking to the nlkcd socket.
+
+=head1 SYNOPSIS
+
+nlkcc B<--key> <key> B<--val> <val> [B<--socket> <sock>] [B<-V>]
+
+nlkcc B<--search> <search> [B<--socket> <sock>] [B<-V>]
+
+nlkcc B<--stats> [B<--socket> <sock>] [B<-V>]
+
+nlkcc B<--ls> [B<--socket> <sock>] [B<-V>]
+
+nlkcc B<--version>
+
+nlkcc B<--help>
+
+=head1 DESCRIPTION
+
+=head1 FLAGS
+
+=head2 GENERAL
+
+=head3 --socket <sock>
+
+The unix socket to connect to.
+
+=head3 -V
+
+Verbose.
+
+=head2 Command: fetch
+
+=head3 --key <key>
+
+The key to lookup.
+
+=head3 --val <val>
+
+The value to lookup.
+
+=head2 Command: stats
+
+=head3 --stats
+
+Fetch the stats info.
+
+=head2 Command: search
+
+=head3 -s <search>
+
+The LDAP search to run.
+
+=head2 Command: list_searches
+
+=head3 --ls
+
+Fetches search info.
+
+=cut
+
 use strict;
 use warnings;
 use IO::Socket::UNIX;
 use Getopt::Long;
 use JSON;
+use Pod::Usage;
+use Net::LDAP::KeyCache;
 
 # set the socket path and then check if one is specied via ENV
 my $socket_path = '/var/run/nlkcd/socket';
@@ -13,7 +77,7 @@ if ( defined( $ENV{nlkcd_socket} ) ) {
 }
 
 sub version {
-	print "nlkcc v. 0.0.1\n";
+	print 'nlkcc v. ' . $Net::LDAP::KeyCache::VERSION . "\n";
 }
 
 sub read_socket_line {
@@ -60,23 +124,16 @@ GetOptions(
 
 if ($version) {
 	version;
-	exit;
+	exit 255;
 }
 
 if ($help) {
-	version;
+	&version;
 
-	print '
---key <key>  The key to lookup.
+	print "\n\n";
 
---val <val>  The value to lookup.
-
--s <sock>    The unix socket to connect to.
-
--V           Verbose.
--
-';
-} ## end if ($help)
+	pod2usage( -exitval => 255, -verbose => 2, -output => \*STDOUT );
+}
 my $socket;
 eval { $socket = IO::Socket::UNIX->new( Peer => $socket_path, Type => SOCK_STREAM(), Timeout => 10 ) or die $@; };
 if ($@) {

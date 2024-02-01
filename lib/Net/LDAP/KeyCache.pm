@@ -15,7 +15,7 @@ use Sys::Syslog;
 
 =head1 NAME
 
-Net::LDAP::KeyCache - 
+Net::LDAP::KeyCache - LDAP caching daemon with a JSON socket interface.
 
 =head1 VERSION
 
@@ -27,10 +27,6 @@ our $VERSION = '0.0.1';
 
 =head1 SYNOPSIS
 
-Quick summary of what the module does.
-
-Perhaps a little code snippet.
-
     use Net::LDAP::KeyCache;
 
     my $nlkcd = Net::LDAP::KeyCache->new();
@@ -39,6 +35,8 @@ Perhaps a little code snippet.
 =head1 METHODS
 
 =head2 new
+
+Innitializes it.
 
     - pid :: Location of the PID file.
         Default :: /var/run/nlkcd/pid
@@ -55,6 +53,15 @@ Perhaps a little code snippet.
 
     - cache_time :: Timeout for cached items in seconds.
         Default :: 120
+
+
+Example of starting passing a config hash to new.
+
+    my $nlkcd;
+    eval{ $nlkcd = Net::LDAP::KeyCache->new( %config ); };
+    if ($@) {
+        die('Error calling Net::LDAP::KeyCache->new( %config ) ... '.$@);
+    }
 
 =cut
 
@@ -118,6 +125,8 @@ sub new {
 Starts up server, calling $poe_kernel->run.
 
 This should not be expected to return.
+
+    $nlkcd->start_server;
 
 =cut
 
@@ -255,7 +264,7 @@ sub server_session_input {
 			my $time_diff = time - $heap->{self}{time_cached_by_search}{$search};
 			if ( $time_diff <= $heap->{self}{cache_time} ) {
 				$heap->{self}{stats}{hits}++;
-				my $results = { status => 'found', results => $heap->{self}{cache_by_search}{$search} };
+				my $results = { status => 'ok', results => $heap->{self}{cache_by_search}{$search} };
 				$heap->{client}->put( encode_json($results) );
 				return;
 			}
@@ -448,34 +457,36 @@ sub fetch_child_close {
 			my $entry      = $ldif->read_entry;
 			my $entry_hash = {};
 
-			foreach my $attribute ( $entry->attributes ) {
-				$entry_hash->{$attribute} = $entry->get_value( $attribute, nooptions => 1, asref => 1 );
+			if (defined($entry)) {
+				foreach my $attribute ( $entry->attributes ) {
+					$entry_hash->{$attribute} = $entry->get_value( $attribute, nooptions => 1, asref => 1 );
+				}
+
+				$_[HEAP]{self}{cache_by_dn}{ $entry->dn }       = $entry_hash;
+				$_[HEAP]{self}{time_cached_by_dn}{ $entry->dn } = $time;
+
+				if ( !defined( $_[HEAP]{self}{cache_by_search}{$search} ) ) {
+					$_[HEAP]{self}{cache_by_search}{$search} = { $entry->dn => $entry_hash, };
+				} else {
+					$_[HEAP]{self}{cache_by_search}{$search}{ $entry->dn } = $entry_hash;
+				}
+
+				$found++;
 			}
-
-			$_[HEAP]{self}{cache_by_dn}{ $entry->dn }       = $entry_hash;
-			$_[HEAP]{self}{time_cached_by_dn}{ $entry->dn } = $time;
-
-			if ( !defined( $_[HEAP]{self}{cache_by_search}{$search} ) ) {
-				$_[HEAP]{self}{cache_by_search}{$search} = { $entry->dn => $entry_hash, };
-			} else {
-				$_[HEAP]{self}{cache_by_search}{$search}{ $entry->dn } = $entry_hash;
-			}
-
-			$found++;
 		} ## end while ( not $ldif->eof() )
 	};
 	if ($@) {
 		warn($@);
-		my $error = { status => 'error', error => 'Search failed... $@' };
+		my $error = { status => 'error', error => 'Search failed... ' . $@ };
 		$_[HEAP]{session_heap}{client}->put( encode_json($error) );
 	}
 
 	eval {
 		if ( $found > 0 ) {
-			my $results = { status => 'found', results => $_[HEAP]{self}{cache_by_search}{$search} };
+			my $results = { status => 'ok', results => $_[HEAP]{self}{cache_by_search}{$search} };
 			$_[HEAP]{session_heap}{client}->put( encode_json($results) );
 		} else {
-			my $results = { status => 'notfound', results => {} };
+			my $results = { status => 'ok', results => {} };
 			if ( $_[HEAP]{session_heap}{make_it_pretty} ) {
 				$_[HEAP]{session_heap}{client}->put( encode_json($results) );
 			} else {
@@ -599,6 +610,122 @@ The results returnt the following keys.
             the values are the keys are the time at which that search was
             ran in unix time.
 
+=head1 JSON RETURN
+
+After issueing a command a line containing JSON will be returned.
+
+    .status :: 'ok' or 'error' depending on if the command ran
+            successfully or not. This key will always be present.
+
+For 'fetch' and 'results' the following are present.
+
+    .results :: An hash with the DN of found LDAP entries as keys.
+
+    .results.$dn :: A found LDAP entry where the attributes are used as keys.
+
+    .results.$dn.$attribute :: An array containing keys for that attribute.
+
+Example...
+
+    {
+      "results": {
+        "uid=foo,ou=users,dc=example": {
+          "cn": [
+            "foo"
+          ],
+          "description": [
+            "some user"
+          ],
+          "gecos": [
+            "Foo"
+          ],
+          "gidNumber": [
+            "1001"
+          ],
+          "homeDirectory": [
+            "/home/foo/"
+          ],
+          "loginShell": [
+            "/sbin/nologin"
+          ],
+          "objectClass": [
+            "top",
+            "account",
+            "posixAccount"
+          ],
+          "uid": [
+            "foo"
+          ],
+          "uidNumber": [
+            "1001"
+          ]
+        }
+      },
+      "status": "ok"
+    }
+
+For the 'stats' command the keys are as below...
+
+    .stats.already_processing :: Count of times connected clients issued another
+            command before waiting for a return.
+
+    .stats.cached_DNs :: Count of number of cached DNs.
+
+    .stats.cached_searches :: Count of number of cached searches.
+
+    .stats.commands.fetch :: Count of fetch commands issues.
+
+    .stats.commands.list_searches :: Count of list_searches commands issues.
+
+    .stats.commands.search :: Count of search commands issues.
+
+    .stats.commands.stats :: Count of stats commands issues.
+
+    .stats.commands.unknown :: Count of times client asked for a command
+            that the server did not understand.
+
+    .stats.connected :: List of currently connected client. Will always be
+            one or higher as the client asking for stats counts as a client.
+
+    .stats.decode_fail :: The number of times a connected client passed a line
+            to the client could not be parsed as JSON.
+
+    .stats.disconnects :: Cound of times a client has disconnected from the server.
+
+    .stats.hits :: Cache hit count.
+
+    .stats.misses :: Cache miss count.
+
+    .stats.processing :: Current connections count that have a command being
+            processed(as in the connection is not idle).
+
+    .stats.uptime :: Number of seconds the server has been connected for.
+
+Example...
+
+    {
+      "stats": {
+        "already_processing": 0,
+        "cached_DNs": 2,
+        "cached_searches": 2,
+        "commands": {
+          "fetch": 8,
+          "list_searches": 2,
+          "search": 0,
+          "stats": 4,
+          "unknown": 0
+        },
+        "connected": 1,
+        "decode_fail": 0,
+        "disconnects": 13,
+        "hits": 4,
+        "misses": 4,
+        "processing": 0,
+        "uptime": 978
+      },
+      "status": "ok"
+    }
+
 =head1 AUTHOR
 
 Zane C. Bowers-Hadley, C<< <vvelox at vvelox.net> >>
@@ -608,9 +735,6 @@ Zane C. Bowers-Hadley, C<< <vvelox at vvelox.net> >>
 Please report any bugs or feature requests to C<bug-net-ldap-keycache at rt.cpan.org>, or through
 the web interface at L<https://rt.cpan.org/NoAuth/ReportBug.html?Queue=Net-LDAP-KeyCache>.  I will be notified, and then you'll
 automatically be notified of progress on your bug as I make changes.
-
-
-
 
 =head1 SUPPORT
 

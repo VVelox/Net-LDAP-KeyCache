@@ -1,12 +1,168 @@
 #!perl
 
+=head1 NAME
+
+mojo_nlkcc - Mojolicious front end for nlkcd.
+
+=head1 SYNOPSIS
+
+mojo_nlkcc daemon -m production -l http://<ip>:<port>
+
+=head1 DESCRIPTION
+
+To use this as a CGI script, copy this to location of the CGI bin.
+
+May be used as a fast CGI script via running this locally as a daemon
+and forwarding that path to the where it is listening on.
+
+For more information on args see `mojo_nlkcc --help` as well as
+https://docs.mojolicious.org/Mojolicious/Commands#COMMANDS .
+
+=head1 Arguments
+
+All arguments are undef by default.
+
+    - apikey :: The API key to use for access.
+
+    - type :: The request type.
+
+Type following types don't require any other args.
+
+    stats
+    list_searches
+
+'fetch' requires...
+
+    - key :: The key to search.
+
+    - val :: The value to look for in the the key.
+
+'search requires...
+
+    - search :: The LDAP query append to the base query.
+
+=head2 examples
+
+    API Key: foo
+    Command: fetch
+    key: uid
+    val: bar
+
+    /?apifkey=foo&type=fetch&key=uid&val=bar
+
+
+    API Key: undef
+    Command: fetch
+    key: email
+    val: foo@bar.derp
+
+    /?type=fetch&key=email&val=foo@bar.derp
+
+
+    API Key: undef
+    Command: stats
+
+    /?type=stats
+
+
+    API Key: undef
+    Command: search
+    Search: uid=derp
+
+    /?type=stats&search=uid=derp
+
+
+    API Key: undef
+    Command: stats
+
+    /?type=list_searches
+
+
+=head1 CONFIGURATION
+
+This reads the configuration file at '/usr/local/etc/nlkcd.toml'
+and uses the following keys.
+
+    - socket :: The socket location for nlkcd.
+        Default :: /var/run/nlkcd/socket
+
+    - webacl :: The Web::ACL config location.
+        Default :: /usr/local/etc/webacl/nlkcd.yaml
+
+=head2 Web::ACL
+
+The following slugs are available and are mapped to the command
+used, the type arg.
+
+    fetch
+    search
+    stats
+    list_searches
+
+Each correspont request type performed.
+
+
+    # allows all slugs from API key derpfoo
+    derpfoo:
+      final: 1
+    # allows only the stats slug from API key fooFoo1
+    fooFoo1:
+      slug_auth: 1
+      slug_require: 1
+      final: 1
+      slugs: [ 'stats' ]
+    # disallow all requests from non-existent API keys
+    nonexistent:
+      final: 0
+    # allow all slugs with a undef API keys from the specified subnets
+    undef:
+      ip_auth: 1
+      require_ip: 1
+      final: 1
+      allow_subnets: [ '127.0.0.1/32', '10.0.0.0/8' ]
+
+For more information, see L<Web::ACL>.
+
+=cut
+
+use strict;
+use warnings;
 use Mojolicious::Lite -signatures;
 use File::Slurp;
 use YAML::XS;
 use TOML qw(from_toml);
 use Web::ACL;
 use Sys::Syslog;
+use JSON;
+use IO::Socket::UNIX;
 
+##
+## reads lines from the socket
+##
+sub read_socket_line {
+	my ($socket) = @_;
+
+	my $data = '';
+
+	my $found_eol;
+	while ( $socket->atmark && !$found_eol ) {
+		my $tmpdata;
+		$socket->read( $tmpdata, 1 );
+		if ( $tmpdata eq "\n" ) {
+			$found_eol = 1;
+		} else {
+		}
+		{
+			$data = $data . $tmpdata;
+		}
+	} ## end while ( $socket->atmark && !$found_eol )
+
+	return $data;
+} ## end sub read_socket_line
+
+##
+## send log messages to syslog
+##
 sub verbose {
 	my ( $level, $string ) = @_;
 
@@ -63,7 +219,6 @@ if ($@) {
 	verbose( 'err', $error_string );
 	die($error_string);
 }
-
 our $acl;
 eval { $acl = Web::ACL->new( acl => $acl_config ); };
 if ($@) {
@@ -72,6 +227,9 @@ if ($@) {
 	die($error_string);
 }
 
+##
+## send all requests to the handler
+##
 get '/*' => sub ($c) {
 	the_stuff($c);
 };
@@ -79,6 +237,9 @@ get '/' => sub ($c) {
 	the_stuff($c);
 };
 
+##
+## what to use to actually process the request
+##
 sub the_stuff {
 	my $c         = $_[0];
 	my $remote_ip = $c->{tx}{original_remote_address};
@@ -106,7 +267,7 @@ sub the_stuff {
 	my $acl_check;
 	eval { $acl_check = $acl->check( apikey => $apikey, ip => $remote_ip, slugs => [$type], ); };
 	if ($@) {
-		$c->render( text => "backend error", status => 400, );
+		$c->render( text => 'backend error', status => 400, );
 		verbose( 'err', 'Error checking the Web ACL object... ' . $@ );
 		return;
 	}
@@ -169,31 +330,46 @@ sub the_stuff {
 			or die $@;
 	};
 	if ($@) {
-		$c->render( text => "backend error", status => 400, );
+		$c->render( text => 'backend error', status => 400, );
 		verbose( 'err', 'Unparsable connect to socket: ' . $@ );
 		return;
 	}
 
-	eval { $socket->send($command); };
-	if ($@) {
-		$c->render( text => "backend error", status => 400, );
-		verbose( 'err', 'Failed to send command to socket... ' . $@ );
-		return;
-	}
+	# first one gets the hello message
 	my $data;
 	eval { $data = read_socket_line($socket) || die('read_socket_line returned false'); };
 	if ($@) {
-		$c->render( text => "backend error", status => 400, );
+		$c->render( text => 'backend error', status => 400, );
 		verbose( 'err', 'read_socket_line errored... ' . $@ );
 		return;
 	}
+
+	# send the command to the socket
+	eval { $socket->send($command); };
+	if ($@) {
+		$c->render( text => 'backend error', status => 400, );
+		verbose( 'err', 'Failed to send command to socket... ' . $@ );
+		return;
+	}
+
+	# read the results of the command
+	eval { $data = read_socket_line($socket) || die('read_socket_line returned false'); };
+	if ($@) {
+		$c->render( text => 'backend error', status => 400, );
+		verbose( 'err', 'read_socket_line errored... ' . $@ );
+		return;
+	}
+
+	# return the results
 	$c->render( text => $data );
 
+	# close the socket
 	eval { $socket->close; };
 	if ($@) {
-		verbose( 'err', '$socket->close errored... ' . $@ );
+		verbose( 'err', '$socket->close errored ... ' . $@ );
 		return;
 	}
 } ## end sub the_stuff
 
+# start mojolicious
 app->start;
