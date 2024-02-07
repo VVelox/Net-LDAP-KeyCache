@@ -26,7 +26,7 @@ my %WriteMakefileArgs = (
 		'Net::Server::Daemonize' => '0',
 		'File::Slurp'            => '0',
 		'Sys::Syslog'            => '0',
-		'Web::ACL'               => '0.0.1',
+		'Web::ACL'               => '0.0.2',
 		'Mojolicious::Lite'      => '0',
 		'YAML::XS'               => '0',
 	},
