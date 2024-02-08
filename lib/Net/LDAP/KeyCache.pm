@@ -482,15 +482,16 @@ sub fetch_child_close {
 	}
 
 	eval {
+		my $json=JSON->new->utf8(1);
 		if ( $found > 0 ) {
 			my $results = { status => 'ok', results => $_[HEAP]{self}{cache_by_search}{$search} };
-			$_[HEAP]{session_heap}{client}->put( encode_json($results) );
+			$_[HEAP]{session_heap}{client}->put( $json->encode($results) );
 		} else {
 			my $results = { status => 'ok', results => {} };
 			if ( $_[HEAP]{session_heap}{make_it_pretty} ) {
-				$_[HEAP]{session_heap}{client}->put( encode_json($results) );
+				$_[HEAP]{session_heap}{client}->put( $json->encode($results) );
 			} else {
-				$_[HEAP]{session_heap}{client}->put( encode_json($results) );
+				$_[HEAP]{session_heap}{client}->put( $json->encode($results) );
 			}
 		}
 	};
