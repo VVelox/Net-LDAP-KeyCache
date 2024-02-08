@@ -80,27 +80,6 @@ sub version {
 	print 'nlkcc v. ' . $Net::LDAP::KeyCache::VERSION . "\n";
 }
 
-sub read_socket_line {
-	my ($socket) = @_;
-
-	my $data = '';
-
-	my $found_eol;
-	while ( $socket->atmark && !$found_eol ) {
-		my $tmpdata;
-		$socket->read( $tmpdata, 1 );
-		if ( $tmpdata eq "\n" ) {
-			$found_eol = 1;
-		} else {
-		}
-		{
-			$data = $data . $tmpdata;
-		}
-	} ## end while ( $socket->atmark && !$found_eol )
-
-	return $data;
-} ## end sub read_socket_line
-
 my $key = undef;
 my $val = undef;
 my $help;
@@ -140,7 +119,7 @@ if ($@) {
 	die( 'Failed to connect to "' . $socket_path . '" ... ' . $@ );
 }
 
-my $header = read_socket_line($socket);
+my $header = <$socket>;
 if ($verbose) {
 	print 'Recieved: ' . $header;
 }
@@ -161,7 +140,7 @@ if ($verbose) {
 	print 'Sent: ' . $command;
 }
 
-my $data = read_socket_line($socket);
+my $data = <$socket>;
 
 if ($verbose) {
 	print 'Recieved: ';
