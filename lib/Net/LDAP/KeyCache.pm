@@ -113,7 +113,7 @@ sub new {
 	my @to_merge = ( 'pid', 'socket', 'base_search', 'cache_time', );
 	foreach my $item (@to_merge) {
 		if ( defined( $opts{$item} ) ) {
-			$self->{$item} = $opts{item};
+			$self->{$item} = $opts{$item};
 		}
 	}
 
