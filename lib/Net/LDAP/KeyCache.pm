@@ -259,18 +259,29 @@ sub server_session_input {
 		# use the cached search if possible
 		my $search = '(' . $json->{var} . '=' . $json->{val} . ')';
 		if (   defined( $heap->{self}{cache_by_search}{$search} )
-			&& defined( $heap->{self}{time_cached_by_search}{$search} ) )
+			&& defined( $heap->{self}{time_cached_by_search}{$search} )
+			&& !$json->{nc} )
 		{
 			my $time_diff = time - $heap->{self}{time_cached_by_search}{$search};
 			if ( $time_diff <= $heap->{self}{cache_time} ) {
 				$heap->{self}{stats}{hits}++;
-				my $results = { status => 'ok', results => $heap->{self}{cache_by_search}{$search} };
+				my $results = {
+					status              => 'ok',
+					results             => $heap->{self}{cache_by_search}{$search},
+					from_cache          => 1,
+					cached_at           => $heap->{self}{time_cached_by_search}{$search},
+					cached_to_now_delta => $time_diff
+				};
 				$heap->{client}->put( encode_json($results) );
 				return;
-			}
+			} ## end if ( $time_diff <= $heap->{self}{cache_time...})
 			$heap->{self}{stats}{misses}++;
 		} else {
-			$heap->{self}{stats}{misses}++;
+			if ( $json->{nc} ) {
+				$heap->{self}{stats}{no_cache}++;
+			} else {
+				$heap->{self}{stats}{misses}++;
+			}
 		}
 
 		$heap->{processing} = 1;
@@ -312,18 +323,29 @@ sub server_session_input {
 
 		# use the cached search if possible
 		if (   defined( $heap->{self}{cache_by_search}{$search} )
-			&& defined( $heap->{self}{time_cached_by_search}{$search} ) )
+			&& defined( $heap->{self}{time_cached_by_search}{$search} )
+			&& !$json->{nc} )
 		{
 			my $time_diff = time - $heap->{self}{time_cached_by_search}{$search};
 			if ( $time_diff <= $heap->{self}{cache_time} ) {
 				$heap->{self}{stats}{hits}++;
-				my $results = { status => 'found', results => $heap->{self}{cache_by_search}{$search} };
+				my $results = {
+					status              => 'ok',
+					results             => $heap->{self}{cache_by_search}{$search},
+					from_cache          => 1,
+					cached_at           => $heap->{self}{time_cached_by_search}{$search},
+					cached_to_now_delta => $time_diff
+				};
 				$heap->{client}->put( encode_json($results) );
 				return;
-			}
+			} ## end if ( $time_diff <= $heap->{self}{cache_time...})
 			$heap->{self}{stats}{misses}++;
 		} else {
-			$heap->{self}{stats}{misses}++;
+			if ( $json->{nc} ) {
+				$heap->{self}{stats}{no_cache}++;
+			} else {
+				$heap->{self}{stats}{misses}++;
+			}
 		}
 
 		$heap->{processing} = 1;
@@ -355,6 +377,7 @@ sub server_session_input {
 			searches   => \@searches,
 			when       => $heap->{self}{time_cached_by_search},
 			time       => time,
+			from_cache => 1,
 			cache_time => $heap->{self}{cache_time}
 		};
 		$heap->{client}->put( encode_json($results) );
@@ -457,7 +480,7 @@ sub fetch_child_close {
 			my $entry      = $ldif->read_entry;
 			my $entry_hash = {};
 
-			if (defined($entry)) {
+			if ( defined($entry) ) {
 				foreach my $attribute ( $entry->attributes ) {
 					$entry_hash->{$attribute} = $entry->get_value( $attribute, nooptions => 1, asref => 1 );
 				}
@@ -472,7 +495,7 @@ sub fetch_child_close {
 				}
 
 				$found++;
-			}
+			} ## end if ( defined($entry) )
 		} ## end while ( not $ldif->eof() )
 	};
 	if ($@) {
@@ -482,9 +505,15 @@ sub fetch_child_close {
 	}
 
 	eval {
-		my $json=JSON->new->utf8(1);
+		my $json = JSON->new->utf8(1);
 		if ( $found > 0 ) {
-			my $results = { status => 'ok', results => $_[HEAP]{self}{cache_by_search}{$search} };
+			my $results = {
+				status              => 'ok',
+				results             => $_[HEAP]{self}{cache_by_search}{$search},
+				from_cache          => 0,
+				cached_at           => $time,
+				cached_to_now_delta => 0
+			};
 			$_[HEAP]{session_heap}{client}->put( $json->encode($results) );
 		} else {
 			my $results = { status => 'ok', results => {} };

@@ -13,7 +13,7 @@ mojo_nlkcc daemon -m production -l http://<ip>:<port>
 To use this as a CGI script, copy this to location of the CGI bin.
 
 May be used as a fast CGI script via running this locally as a daemon
-and forwarding that path to the where it is listening on.
+and forwarding that path to the where it is listening on.2
 
 For more information on args see `mojo_nlkcc --help` as well as
 https://docs.mojolicious.org/Mojolicious/Commands#COMMANDS .
@@ -261,9 +261,17 @@ sub the_stuff {
 	my $key;
 	my $val;
 	my $command;
+	my $nc;
 	if ( $type eq 'fetch' ) {
 		$key = $c->param('key');
 		$val = $c->param('val');
+		$nc  = $c->param('nc');
+
+		if ( !$nc ) {
+			$nc = 0;
+		} else {
+			$nc = 1;
+		}
 
 		if ( !defined($key) ) {
 			$c->render( text => "No key specified", status => 400, );
@@ -277,9 +285,16 @@ sub the_stuff {
 		verbose( 'info', 'Key: ' . $key );
 		verbose( 'info', 'Val: ' . $val );
 
-		$command = encode_json( { command => 'fetch', 'var' => $key, 'val' => $val } ) . "\n";
+		$command = encode_json( { command => 'fetch', 'var' => $key, 'val' => $val, nc => $nc } ) . "\n";
 	} elsif ( $type eq 'search' ) {
 		$search = $c->param('search');
+		$nc     = $c->param('nc');
+
+		if ( !$nc ) {
+			$nc = 0;
+		} else {
+			$nc = 1;
+		}
 
 		if ( !defined($search) ) {
 			$c->render( text => "No search specified", status => 400, );
@@ -288,7 +303,7 @@ sub the_stuff {
 		}
 		verbose( 'info', 'Search: ' . $search );
 
-		$command = encode_json( { command => 'search', 'search' => $search, } ) . "\n";
+		$command = encode_json( { command => 'search', 'search' => $search, nc => $nc } ) . "\n";
 	} elsif ( $type eq 'stats' ) {
 		$command = encode_json( { command => 'stats' } ) . "\n";
 	} elsif ( $type eq 'list_searches' ) {

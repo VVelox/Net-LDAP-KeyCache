@@ -6,9 +6,9 @@ nlkcc - Client for talking to the nlkcd socket.
 
 =head1 SYNOPSIS
 
-nlkcc B<--key> <key> B<--val> <val> [B<--socket> <sock>] [B<-V>]
+nlkcc B<--key> <key> B<--val> <val> [B<--socket> <sock>] [B<-V>] [B<--nc>]
 
-nlkcc B<--search> <search> [B<--socket> <sock>] [B<-V>]
+nlkcc B<--search> <search> [B<--socket> <sock>] [B<-V>] [B<--nc>]
 
 nlkcc B<--stats> [B<--socket> <sock>] [B<-V>]
 
@@ -42,6 +42,10 @@ The key to lookup.
 
 The value to lookup.
 
+=head3 --nc
+
+Don't use cache.
+
 =head2 Command: stats
 
 =head3 --stats
@@ -59,6 +63,10 @@ The LDAP search to run.
 =head3 --ls
 
 Fetches search info.
+
+=head3 --nc
+
+Don't use cache.
 
 =cut
 
@@ -88,6 +96,7 @@ my $verbose;
 my $stats;
 my $search;
 my $list_searches;
+my $no_cache;
 GetOptions(
 	'h'        => \$help,
 	'help'     => \$help,
@@ -99,11 +108,18 @@ GetOptions(
 	'stats'    => \$stats,
 	's=s'      => \$search,
 	'ls'       => \$list_searches,
+	'nc'       => \$$no_cache,
 );
 
 if ($version) {
 	version;
 	exit 255;
+}
+
+if ( !$no_cache ) {
+	$no_cache = 0;
+} else {
+	$no_cache = 1;
 }
 
 if ($help) {
@@ -126,9 +142,9 @@ if ($verbose) {
 
 my $command;
 if ( defined($key) && defined($val) ) {
-	$command = encode_json( { command => 'fetch', 'var' => $key, 'val' => $val } ) . "\n";
+	$command = encode_json( { command => 'fetch', 'var' => $key, 'val' => $val, nc => $no_cache } ) . "\n";
 } elsif ( defined($search) ) {
-	$command = encode_json( { command => 'search', 'search' => $search, } ) . "\n";
+	$command = encode_json( { command => 'search', 'search' => $search, nc => $no_cache } ) . "\n";
 } elsif ($stats) {
 	$command = encode_json( { command => 'stats' } ) . "\n";
 } elsif ($list_searches) {
