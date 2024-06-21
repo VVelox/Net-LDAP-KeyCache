@@ -108,7 +108,7 @@ GetOptions(
 	'stats'    => \$stats,
 	's=s'      => \$search,
 	'ls'       => \$list_searches,
-	'nc'       => \$$no_cache,
+	'nc'       => \$no_cache,
 );
 
 if ($version) {
