@@ -237,6 +237,13 @@ sub server_session_input {
 		return;
 	}
 
+	# set the default value for nc if needed
+	if ( defined( $json->{nc} ) && ref( $json->{nc} ) != '' ) {
+		$json->{nc} = 0;
+	} elsif ( $json->{nc} ne '0' || $json->{nc} ne '1' ) {
+		$json->{nc} = 0;
+	}
+
 	# bad idea, don't use this in production
 	my $make_it_pretty = 0;
 	if ( !defined( $json->{make_it_pretty} ) ) {
@@ -258,7 +265,7 @@ sub server_session_input {
 
 		# use the cached search if possible
 		my $search = '(' . $json->{var} . '=' . $json->{val} . ')';
-		if ( !$json->{nc} ) {
+		if ( $json->{nc} eq '0' ) {
 			if (   defined( $heap->{self}{cache_by_search}{$search} )
 				&& defined( $heap->{self}{time_cached_by_search}{$search} ) )
 			{
@@ -321,30 +328,29 @@ sub server_session_input {
 		}
 
 		# use the cached search if possible
-		if (   defined( $heap->{self}{cache_by_search}{$search} )
-			&& defined( $heap->{self}{time_cached_by_search}{$search} )
-			&& !$json->{nc} )
-		{
-			my $time_diff = time - $heap->{self}{time_cached_by_search}{$search};
-			if ( $time_diff <= $heap->{self}{cache_time} ) {
-				$heap->{self}{stats}{hits}++;
-				my $results = {
-					status              => 'ok',
-					results             => $heap->{self}{cache_by_search}{$search},
-					from_cache          => 1,
-					cached_at           => $heap->{self}{time_cached_by_search}{$search},
-					cached_to_now_delta => $time_diff
-				};
-				$heap->{client}->put( encode_json($results) );
-				return;
-			} ## end if ( $time_diff <= $heap->{self}{cache_time...})
-			$heap->{self}{stats}{misses}++;
-		} else {
-			if ( $json->{nc} ) {
-				$heap->{self}{stats}{no_cache}++;
+		if ( $json->{nc} eq '0' ) {
+			if (   defined( $heap->{self}{cache_by_search}{$search} )
+				&& defined( $heap->{self}{time_cached_by_search}{$search} ) )
+			{
+				my $time_diff = time - $heap->{self}{time_cached_by_search}{$search};
+				if ( $time_diff <= $heap->{self}{cache_time} ) {
+					$heap->{self}{stats}{hits}++;
+					my $results = {
+						status              => 'ok',
+						results             => $heap->{self}{cache_by_search}{$search},
+						from_cache          => 1,
+						cached_at           => $heap->{self}{time_cached_by_search}{$search},
+						cached_to_now_delta => $time_diff
+					};
+					$heap->{client}->put( encode_json($results) );
+					return;
+				} ## end if ( $time_diff <= $heap->{self}{cache_time...})
+				$heap->{self}{stats}{misses}++;
 			} else {
 				$heap->{self}{stats}{misses}++;
 			}
+		} else {
+			$heap->{self}{stats}{no_cache}++;
 		}
 
 		$heap->{processing} = 1;
