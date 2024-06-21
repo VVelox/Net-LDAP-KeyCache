@@ -117,9 +117,9 @@ if ($version) {
 }
 
 if ( !$no_cache ) {
-	$no_cache = 0;
+	$no_cache = '0';
 } else {
-	$no_cache = 1;
+	$no_cache = '1';
 }
 
 if ($help) {

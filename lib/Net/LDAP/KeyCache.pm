@@ -240,7 +240,7 @@ sub server_session_input {
 	# set the default value for nc if needed
 	if ( defined( $json->{nc} ) && ref( $json->{nc} ) != '' ) {
 		$json->{nc} = 0;
-	} elsif ( $json->{nc} ne '0' || $json->{nc} ne '1' ) {
+	} elsif ( $json->{nc} ne '0' && $json->{nc} ne '1' ) {
 		$json->{nc} = 0;
 	}
 
