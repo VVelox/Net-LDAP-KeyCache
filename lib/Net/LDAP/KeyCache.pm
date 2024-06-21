@@ -258,30 +258,29 @@ sub server_session_input {
 
 		# use the cached search if possible
 		my $search = '(' . $json->{var} . '=' . $json->{val} . ')';
-		if (   defined( $heap->{self}{cache_by_search}{$search} )
-			&& defined( $heap->{self}{time_cached_by_search}{$search} )
-			&& !$json->{nc} )
-		{
-			my $time_diff = time - $heap->{self}{time_cached_by_search}{$search};
-			if ( $time_diff <= $heap->{self}{cache_time} ) {
-				$heap->{self}{stats}{hits}++;
-				my $results = {
-					status              => 'ok',
-					results             => $heap->{self}{cache_by_search}{$search},
-					from_cache          => 1,
-					cached_at           => $heap->{self}{time_cached_by_search}{$search},
-					cached_to_now_delta => $time_diff
-				};
-				$heap->{client}->put( encode_json($results) );
-				return;
-			} ## end if ( $time_diff <= $heap->{self}{cache_time...})
-			$heap->{self}{stats}{misses}++;
-		} else {
-			if ( $json->{nc} ) {
-				$heap->{self}{stats}{no_cache}++;
+		if ( !$json->{nc} ) {
+			if (   defined( $heap->{self}{cache_by_search}{$search} )
+				&& defined( $heap->{self}{time_cached_by_search}{$search} ) )
+			{
+				my $time_diff = time - $heap->{self}{time_cached_by_search}{$search};
+				if ( $time_diff <= $heap->{self}{cache_time} ) {
+					$heap->{self}{stats}{hits}++;
+					my $results = {
+						status              => 'ok',
+						results             => $heap->{self}{cache_by_search}{$search},
+						from_cache          => 1,
+						cached_at           => $heap->{self}{time_cached_by_search}{$search},
+						cached_to_now_delta => $time_diff
+					};
+					$heap->{client}->put( encode_json($results) );
+					return;
+				} ## end if ( $time_diff <= $heap->{self}{cache_time...})
+				$heap->{self}{stats}{misses}++;
 			} else {
 				$heap->{self}{stats}{misses}++;
 			}
+		} else {
+			$heap->{self}{stats}{no_cache}++;
 		}
 
 		$heap->{processing} = 1;
@@ -476,6 +475,8 @@ sub fetch_child_close {
 		close $fh;
 
 		my $ldif = Net::LDAP::LDIF->new( $filename, "r", onerror => 'die' );
+		delete( $_[HEAP]{self}{cache_by_search}{$search} );
+		$_[HEAP]{self}{cache_by_search}{$search} = {};
 		while ( not $ldif->eof() ) {
 			my $entry      = $ldif->read_entry;
 			my $entry_hash = {};
@@ -488,11 +489,7 @@ sub fetch_child_close {
 				$_[HEAP]{self}{cache_by_dn}{ $entry->dn }       = $entry_hash;
 				$_[HEAP]{self}{time_cached_by_dn}{ $entry->dn } = $time;
 
-				if ( !defined( $_[HEAP]{self}{cache_by_search}{$search} ) ) {
-					$_[HEAP]{self}{cache_by_search}{$search} = { $entry->dn => $entry_hash, };
-				} else {
-					$_[HEAP]{self}{cache_by_search}{$search}{ $entry->dn } = $entry_hash;
-				}
+				$_[HEAP]{self}{cache_by_search}{$search}{ $entry->dn } = $entry_hash;
 
 				$found++;
 			} ## end if ( defined($entry) )
