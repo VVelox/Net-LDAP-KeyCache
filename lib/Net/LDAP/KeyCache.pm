@@ -272,7 +272,8 @@ sub server_session_input {
 		$json->{val}=~s/\>/\\\>/g;
 		$json->{val}=~s/\;/\\\;/g;
 		$json->{val}=~s/\"/\\\"/g;
-		$json->{val}=~s/\ /\\ /g;
+		$json->{val}=~s/^\ /\\ /g;
+		$json->{val}=~s/\ $/\\ /g;
 
 		# use the cached search if possible
 		my $search = '(' . $json->{var} . '=' . $json->{val} . ')';
