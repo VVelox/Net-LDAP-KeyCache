@@ -244,6 +244,13 @@ sub server_session_input {
 		$json->{nc} = 0;
 	}
 
+	# set drop to a empty array if not set or if not a array
+	if ( defined( $json->{drop} ) && ref( $json->{drop} ) != 'ARRAY' ) {
+		$json->{drop} = [];
+	} else {
+		$json->{drop} = [];
+	}
+
 	# bad idea, don't use this in production
 	my $make_it_pretty = 0;
 	if ( !defined( $json->{make_it_pretty} ) ) {
@@ -263,17 +270,17 @@ sub server_session_input {
 			return;
 		}
 
-		$json->{val}=~s/\\/\\\\/g;
-		$json->{val}=~s/\,/\\\,/g;
-		$json->{val}=~s/\(/\\\(/g;
-		$json->{val}=~s/\)/\\\)/g;
-		$json->{val}=~s/\+/\\\+/g;
-		$json->{val}=~s/\</\\\</g;
-		$json->{val}=~s/\>/\\\>/g;
-		$json->{val}=~s/\;/\\\;/g;
-		$json->{val}=~s/\"/\\\"/g;
-		$json->{val}=~s/^\ /\\ /g;
-		$json->{val}=~s/\ $/\\ /g;
+		$json->{val} =~ s/\\/\\\\/g;
+		$json->{val} =~ s/\,/\\\,/g;
+		$json->{val} =~ s/\(/\\\(/g;
+		$json->{val} =~ s/\)/\\\)/g;
+		$json->{val} =~ s/\+/\\\+/g;
+		$json->{val} =~ s/\</\\\</g;
+		$json->{val} =~ s/\>/\\\>/g;
+		$json->{val} =~ s/\;/\\\;/g;
+		$json->{val} =~ s/\"/\\\"/g;
+		$json->{val} =~ s/^\ /\\ /g;
+		$json->{val} =~ s/\ $/\\ /g;
 
 		# use the cached search if possible
 		my $search = '(' . $json->{var} . '=' . $json->{val} . ')';
@@ -321,6 +328,7 @@ sub server_session_input {
 				stderr         => '',
 				make_it_pretty => $json->{make_it_pretty},
 				search         => $search,
+				drop           => $json->{drop},
 			},
 		);
 	} elsif ( $json->{command} eq 'search' ) {
@@ -384,6 +392,7 @@ sub server_session_input {
 				stderr         => '',
 				make_it_pretty => $json->{make_it_pretty},
 				search         => $search,
+				drop           => $json->{drop},
 			},
 		);
 	} elsif ( $json->{command} eq 'list_searches' ) {
@@ -808,7 +817,7 @@ L<https://metacpan.org/release/Net-LDAP-KeyCache>
 
 =head1 LICENSE AND COPYRIGHT
 
-This software is Copyright (c) 2023 by Zane C. Bowers-Hadley.
+This software is Copyright (c) 2024 by Zane C. Bowers-Hadley.
 
 This is free software, licensed under:
 

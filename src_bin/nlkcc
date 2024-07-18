@@ -97,6 +97,7 @@ my $stats;
 my $search;
 my $list_searches;
 my $no_cache;
+my @drop;
 GetOptions(
 	'h'        => \$help,
 	'help'     => \$help,
@@ -109,6 +110,7 @@ GetOptions(
 	's=s'      => \$search,
 	'ls'       => \$list_searches,
 	'nc'       => \$no_cache,
+	'd=s'      => \@drop,
 );
 
 if ($version) {
@@ -142,9 +144,10 @@ if ($verbose) {
 
 my $command;
 if ( defined($key) && defined($val) ) {
-	$command = encode_json( { command => 'fetch', 'var' => $key, 'val' => $val, nc => $no_cache } ) . "\n";
+	$command
+		= encode_json( { command => 'fetch', 'var' => $key, 'val' => $val, nc => $no_cache, drop => \@drop } ) . "\n";
 } elsif ( defined($search) ) {
-	$command = encode_json( { command => 'search', 'search' => $search, nc => $no_cache } ) . "\n";
+	$command = encode_json( { command => 'search', 'search' => $search, nc => $no_cache, drop => \@drop } ) . "\n";
 } elsif ($stats) {
 	$command = encode_json( { command => 'stats' } ) . "\n";
 } elsif ($list_searches) {
