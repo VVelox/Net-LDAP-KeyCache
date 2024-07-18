@@ -12,6 +12,7 @@ use Socket;
 use File::Temp qw/ tempfile tempdir /;
 use Net::LDAP::LDIF;
 use Sys::Syslog;
+use Clone;
 
 =head1 NAME
 
@@ -298,7 +299,24 @@ sub server_session_input {
 						cached_at           => $heap->{self}{time_cached_by_search}{$search},
 						cached_to_now_delta => $time_diff
 					};
-					$heap->{client}->put( encode_json($results) );
+
+					# check the results for things to drop
+					my $return_results = $results;
+					if ( $json->{drop}[0] ) {
+						my $return_results = clone($results);
+						my @drop_check     = keys( %{ $return_results->{results} } );
+						foreach my $dn_to_check (@drop_check) {
+							foreach my $to_drop ( @{ $json->{drop} } ) {
+								if ( ref($to_drop) eq '' ) {
+									if ( defined( $return_results->{results}{$dn_to_check}{$to_drop} ) ) {
+										delete( $return_results->{results}{$dn_to_check}{$to_drop} );
+									}
+								}
+							}
+						}
+					} ## end if ( $json->{drop}[0] )
+
+					$heap->{client}->put( encode_json($return_results) );
 					return;
 				} ## end if ( $time_diff <= $heap->{self}{cache_time...})
 				$heap->{self}{stats}{misses}++;
@@ -362,7 +380,24 @@ sub server_session_input {
 						cached_at           => $heap->{self}{time_cached_by_search}{$search},
 						cached_to_now_delta => $time_diff
 					};
-					$heap->{client}->put( encode_json($results) );
+
+					# check the results for things to drop
+					my $return_results = $results;
+					if ( $json->{drop}[0] ) {
+						my $return_results = clone($results);
+						my @drop_check     = keys( %{ $return_results->{results} } );
+						foreach my $dn_to_check (@drop_check) {
+							foreach my $to_drop ( @{ $json->{drop} } ) {
+								if ( ref($to_drop) eq '' ) {
+									if ( defined( $return_results->{results}{$dn_to_check}{$to_drop} ) ) {
+										delete( $return_results->{results}{$dn_to_check}{$to_drop} );
+									}
+								}
+							}
+						}
+					} ## end if ( $json->{drop}[0] )
+
+					$heap->{client}->put( encode_json($return_results) );
 					return;
 				} ## end if ( $time_diff <= $heap->{self}{cache_time...})
 				$heap->{self}{stats}{misses}++;
@@ -538,7 +573,23 @@ sub fetch_child_close {
 				cached_at           => $time,
 				cached_to_now_delta => 0
 			};
-			$_[HEAP]{session_heap}{client}->put( $json->encode($results) );
+
+			my $return_results = $results;
+			if ( defined( $_[HEAP]{session_heap}{drop}[0] ) ) {
+				$return_results = clone($results);
+				my @drop_check = keys( %{ $return_results->{results} } );
+				foreach my $dn (@drop_check) {
+					foreach my $to_drop ( @{ $_[HEAP]{session_heap}{drop} } ) {
+						if ( ref($to_drop) eq '' ) {
+							if ( defined( $return_results->{results}{$dn}{$to_drop} ) ) {
+								delete( $return_results->{results}{$dn}{$to_drop} );
+							}
+						}
+					}
+				}
+			} ## end if ( defined( $_[HEAP]{session_heap}{drop}...))
+
+			$_[HEAP]{session_heap}{client}->put( $json->encode($return_results) );
 		} else {
 			my $results = { status => 'ok', results => {} };
 			if ( $_[HEAP]{session_heap}{make_it_pretty} ) {
