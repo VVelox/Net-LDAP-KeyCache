@@ -13,6 +13,9 @@ use File::Temp qw/ tempfile tempdir /;
 use Net::LDAP::LDIF;
 use Sys::Syslog;
 use Clone;
+use Time::HiRes qw( usleep ualarm gettimeofday tv_interval nanosleep
+	clock_gettime clock_getres clock_nanosleep clock
+	stat lstat utime);
 
 =head1 NAME
 
@@ -89,7 +92,7 @@ sub new {
 		time_cached_by_dn     => {},
 		cache_by_search       => {},
 		time_cached_by_search => {},
-		start_time            => time,
+		start_time            => [gettimeofday],
 		stats                 => {
 			hits        => 0,
 			misses      => 0,
@@ -102,6 +105,14 @@ sub new {
 				stats         => 0,
 				unknown       => 0,
 			},
+			command_time => {
+				fetch         => 0,
+				search        => 0,
+				list_searches => 0,
+				stats         => 0,
+				unknown       => 0,
+			},
+			error_time         => 0,
 			decode_fail        => 0,
 			already_processing => 0,
 			processing         => 0,
@@ -211,10 +222,13 @@ sub server_session_input {
 		return;
 	}
 
+	my $t0 = [gettimeofday];
+
 	if ( $heap->{processing} ) {
 		$heap->{self}{stats}{already_processing}++;
 		my $error = { status => 'error', error => 'already processing a request' };
 		$heap->{client}->put( encode_json($error) );
+		$heap->{self}{stats}{error_time} = $heap->{self}{stats}{error_time} + tv_interval( $t0, [gettimeofday] );
 		return;
 	}
 
@@ -224,17 +238,20 @@ sub server_session_input {
 		$heap->{self}{stats}{decode_fail}++;
 		my $error = { status => 'error', error => $@ };
 		$heap->{client}->put( encode_json($error) );
+		$heap->{self}{stats}{error_time} = $heap->{self}{stats}{error_time} + tv_interval( $t0, [gettimeofday] );
 		return;
 	} elsif ( !defined($json) ) {
 		$heap->{self}{stats}{decode_fail}++;
 		my $error = { status => 'error', error => 'parsing JSON returned undef' };
 		$heap->{client}->put( encode_json($error) );
+		$heap->{self}{stats}{error_time} = $heap->{self}{stats}{error_time} + tv_interval( $t0, [gettimeofday] );
 		return;
 	}
 
 	if ( !defined( $json->{command} ) ) {
 		my $error = { status => 'error', error => '$json->{command} is undef' };
 		$heap->{client}->put( encode_json($error) );
+		$heap->{self}{stats}{error_time} = $heap->{self}{stats}{error_time} + tv_interval( $t0, [gettimeofday] );
 		return;
 	}
 
@@ -264,10 +281,16 @@ sub server_session_input {
 		if ( !defined( $json->{var} ) ) {
 			my $error = { status => 'error', error => '$json->{var} is undef' };
 			$heap->{client}->put( encode_json($error) );
+			$heap->{self}{stats}{command_time}{fetch}
+				= $heap->{self}{stats}{command_time}{fetch} + tv_interval( $t0, [gettimeofday] );
+			$heap->{self}{stats}{error_time} = $heap->{self}{stats}{error_time} + tv_interval( $t0, [gettimeofday] );
 			return;
 		} elsif ( !defined( $json->{val} ) ) {
 			my $error = { status => 'error', error => '$json->{val} is undef' };
 			$heap->{client}->put( encode_json($error) );
+			$heap->{self}{stats}{command_time}{fetch}
+				= $heap->{self}{stats}{command_time}{fetch} + tv_interval( $t0, [gettimeofday] );
+			$heap->{self}{stats}{error_time} = $heap->{self}{stats}{error_time} + tv_interval( $t0, [gettimeofday] );
 			return;
 		}
 
@@ -317,6 +340,8 @@ sub server_session_input {
 					} ## end if ( $json->{drop}[0] )
 
 					$heap->{client}->put( encode_json($return_results) );
+					$heap->{self}{stats}{command_time}{fetch}
+						= $heap->{self}{stats}{command_time}{fetch} + tv_interval( $t0, [gettimeofday] );
 					return;
 				} ## end if ( $time_diff <= $heap->{self}{cache_time...})
 				$heap->{self}{stats}{misses}++;
@@ -347,6 +372,8 @@ sub server_session_input {
 				make_it_pretty => $json->{make_it_pretty},
 				search         => $search,
 				drop           => $json->{drop},
+				type           => 'fetch',
+				t0             => $t0,
 			},
 		);
 	} elsif ( $json->{command} eq 'search' ) {
@@ -354,6 +381,9 @@ sub server_session_input {
 		if ( !defined( $json->{search} ) ) {
 			my $error = { status => 'error', error => '$json->{search} is undef' };
 			$heap->{client}->put( encode_json($error) );
+			$heap->{self}{stats}{command_time}{search}
+				= $heap->{self}{stats}{command_time}{search} + tv_interval( $t0, [gettimeofday] );
+			$heap->{self}{stats}{error_time} = $heap->{self}{stats}{error_time} + tv_interval( $t0, [gettimeofday] );
 			return;
 		}
 
@@ -398,6 +428,8 @@ sub server_session_input {
 					} ## end if ( $json->{drop}[0] )
 
 					$heap->{client}->put( encode_json($return_results) );
+					$heap->{self}{stats}{command_time}{search}
+						= $heap->{self}{stats}{command_time}{search} + tv_interval( $t0, [gettimeofday] );
 					return;
 				} ## end if ( $time_diff <= $heap->{self}{cache_time...})
 				$heap->{self}{stats}{misses}++;
@@ -428,6 +460,8 @@ sub server_session_input {
 				make_it_pretty => $json->{make_it_pretty},
 				search         => $search,
 				drop           => $json->{drop},
+				type           => 'search',
+				t0             => $t0,
 			},
 		);
 	} elsif ( $json->{command} eq 'list_searches' ) {
@@ -442,10 +476,12 @@ sub server_session_input {
 			cache_time => $heap->{self}{cache_time}
 		};
 		$heap->{client}->put( encode_json($results) );
+		$heap->{self}{stats}{command_time}{list_searches}
+			= $heap->{self}{stats}{command_time}{list_searches} + tv_interval( $t0, [gettimeofday] );
 		return;
 	} elsif ( $json->{command} eq 'stats' ) {
 		$heap->{self}{stats}{commands}{stats}++;
-		$heap->{self}{stats}{uptime} = time - $heap->{self}{start_time};
+		$heap->{self}{stats}{uptime} = tv_interval( $heap->{self}{start_time}, [gettimeofday] );
 		my @searches = keys( %{ $heap->{self}{cache_by_search} } );
 		$heap->{self}{stats}{cached_searches} = $#searches + 1;
 		my @DNs = keys( %{ $heap->{self}{cache_by_dn} } );
@@ -455,11 +491,16 @@ sub server_session_input {
 			stats  => $heap->{self}{stats},
 		};
 		$heap->{client}->put( encode_json($results) );
+		$heap->{self}{stats}{command_time}{stats}
+			= $heap->{self}{stats}{command_time}{stats} + tv_interval( $t0, [gettimeofday] );
 		return;
 	} else {
 		$heap->{self}{stats}{commands}{unknown}++;
 		my $results = { status => 'unknown command', };
 		$heap->{client}->put( encode_json($results) );
+		$heap->{self}{stats}{command_time}{unknown}
+			= $heap->{self}{stats}{command_time}{unknown} + tv_interval( $t0, [gettimeofday] );
+		$heap->{self}{stats}{error_time} = $heap->{self}{stats}{error_time} + tv_interval( $t0, [gettimeofday] );
 		return;
 	}
 } ## end sub server_session_input
@@ -613,6 +654,10 @@ sub fetch_child_close {
 		#print "wid $wheel_id closed all pipes.\n";
 		return;
 	}
+
+	$$_[HEAP]{session_heap}{self}{stats}{command_time}{ $_[HEAP]{session_heap}{type} }
+		= $$_[HEAP]{session_heap}{self}{stats}{command_time}{ $_[HEAP]{session_heap}{type} }
+		+ tv_interval( $_[HEAP]{session_heap}{t0}, [gettimeofday] );
 
 	#print "pid ", $child->PID, " closed all pipes.\n";
 	delete $_[HEAP]{children_by_pid}{ $child->PID };
@@ -784,10 +829,15 @@ For the 'stats' command the keys are as below...
 
     .stats.commands.search :: Count of search commands issues.
 
-    .stats.commands.stats :: Count of stats commands issues.
+    .stats.commands :: Count of stats commands issues.
 
     .stats.commands.unknown :: Count of times client asked for a command
             that the server did not understand.
+
+    .stats.command_time :: High resolution time used by commands
+
+    .stats.command_time.unknown :: High resolution time used by used by handling
+            commands the the server does not udnerstand
 
     .stats.connected :: List of currently connected client. Will always be
             one or higher as the client asking for stats counts as a client.
@@ -796,6 +846,8 @@ For the 'stats' command the keys are as below...
             to the client could not be parsed as JSON.
 
     .stats.disconnects :: Cound of times a client has disconnected from the server.
+
+    .stats.error_time :: Total time used for by things that errored.
 
     .stats.hits :: Cache hit count.
 

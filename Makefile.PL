@@ -29,6 +29,7 @@ my %WriteMakefileArgs = (
 		'Web::ACL'               => '0.0.2',
 		'Mojolicious::Lite'      => '0',
 		'YAML::XS'               => '0',
+		'Time::HiRes'            => 0,
 	},
 	dist       => { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
 	clean      => { FILES    => 'Net-LDAP-KeyCache-*' },

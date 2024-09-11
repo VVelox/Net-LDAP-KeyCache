@@ -52,6 +52,26 @@ Either prints the help info.
 
 Either pritns the version info.
 
+=head2 CONFIG FILE
+
+The config file accepts the keys below.
+
+    - pid :: Location of the PID file.
+        Default :: /var/run/nlkcd/pid
+
+    - socket :: Socket locations.
+        Default :: /var/run/nlkcd/socket
+
+    - base_search :: The base to use for the search.
+        Default :: (|(objectClass=person)(objectClass=posixAccount)(objectClass=inetOrgPerson)(objectClass=account)(objectClass=posixGroup))
+
+    - connect :: An array to of options to pass to ldapsearch. Should include the relevant
+                 bind, base DN, and host options.
+        Default :: undef
+
+    - cache_time :: Timeout for cached items in seconds.
+        Default :: 120
+
 =cut
 
 use strict;
