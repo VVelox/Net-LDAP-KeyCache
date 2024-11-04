@@ -168,6 +168,10 @@ if ( defined($key) && defined($val) ) {
 	$command = encode_json( { command => 'stats' } ) . "\n";
 } elsif ($list_searches) {
 	$command = encode_json( { command => 'list_searches' } ) . "\n";
+} elsif ($ad_disable) {
+	$command = encode_json( { command => 'ad_disable', dn => $ad_disable } ) . "\n";
+} elsif ($ad_lockout) {
+	$command = encode_json( { command => 'ad_lockout', dn => $ad_lockout } ) . "\n";
 }
 
 $socket->send($command);
