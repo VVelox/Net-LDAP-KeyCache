@@ -72,6 +72,12 @@ The config file accepts the keys below.
     - cache_time :: Timeout for cached items in seconds.
         Default :: 120
 
+    - enable_ad_disable :: Enable AD lockout via ORing useraccountcontrol attributes via 0x0002
+        Default :: 0
+
+    - enable_ad_lockout :: Enable AD lockout via ORing useraccountcontrol attributes via 0x0010
+        Default :: 0
+
 =cut
 
 use strict;

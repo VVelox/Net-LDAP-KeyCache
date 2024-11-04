@@ -6,13 +6,17 @@ nlkcc - Client for talking to the nlkcd socket.
 
 =head1 SYNOPSIS
 
-nlkcc B<--key> <key> B<--val> <val> [B<--socket> <sock>] [B<-V>] [B<--nc>]
+nlkcc B<--key> <key> B<--val> <val> [B<--socket> <sock>] [B<-V>] [B<--nc>] [<-d> <attribute>]
 
-nlkcc B<--search> <search> [B<--socket> <sock>] [B<-V>] [B<--nc>]
+nlkcc B<--search> <search> [B<--socket> <sock>] [B<-V>] [B<--nc>] [<-d> <attribute>]
 
 nlkcc B<--stats> [B<--socket> <sock>] [B<-V>]
 
 nlkcc B<--ls> [B<--socket> <sock>] [B<-V>]
+
+nlkcc B<--ad_disable_ad> <dn>
+
+nlkcc B<--ad_lockout_ad> <dn>
 
 nlkcc B<--version>
 
@@ -46,6 +50,10 @@ The value to lookup.
 
 Don't use cache.
 
+=head3 -d <attribute>
+
+A attribute you do not want to be returned. Can be used more than once.
+
 =head2 Command: stats
 
 =head3 --stats
@@ -57,6 +65,10 @@ Fetch the stats info.
 =head3 -s <search>
 
 The LDAP search to run.
+
+=head3 -d <attribute>
+
+A attribute you do not want to be returned. Can be used more than once.
 
 =head2 Command: list_searches
 
@@ -98,19 +110,23 @@ my $search;
 my $list_searches;
 my $no_cache;
 my @drop;
+my $ad_lockout;
+my $ad_disable;
 GetOptions(
-	'h'        => \$help,
-	'help'     => \$help,
-	'key=s'    => \$key,
-	'val=s'    => \$val,
-	'V'        => \$verbose,
-	'version'  => \$version,
-	'socket=s' => \$socket_path,
-	'stats'    => \$stats,
-	's=s'      => \$search,
-	'ls'       => \$list_searches,
-	'nc'       => \$no_cache,
-	'd=s'      => \@drop,
+	'h'          => \$help,
+	'help'       => \$help,
+	'key=s'      => \$key,
+	'val=s'      => \$val,
+	'V'          => \$verbose,
+	'version'    => \$version,
+	'socket=s'   => \$socket_path,
+	'stats'      => \$stats,
+	's=s'        => \$search,
+	'ls'         => \$list_searches,
+	'nc'         => \$no_cache,
+	'd=s'        => \@drop,
+	'ad_disable' => \$ad_disable,
+	'ad_lockout' => \$ad_lockout,
 );
 
 if ($version) {

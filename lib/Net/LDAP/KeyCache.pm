@@ -55,9 +55,19 @@ Innitializes it.
                  bind, base DN, and host options.
         Default :: undef
 
+    - connect_admin :: Connect options to use for ad_disable and ad_lockout.
+        Default :: undef
+
     - cache_time :: Timeout for cached items in seconds.
         Default :: 120
 
+    - enable_ad_disable :: Enable AD lockout via ORing useraccountcontrol attributes via 0x0002
+            Requires connect_admin to be set.
+        Default :: 0
+
+    - enable_ad_lockout :: Enable AD lockout via ORing useraccountcontrol attributes via 0x0010
+            Requires connect_admin to be set.
+        Default :: 0
 
 Example of starting passing a config hash to new.
 
@@ -88,11 +98,14 @@ sub new {
 			. '(objectClass=account)'
 			. '(objectClass=posixGroup))',
 		connect               => $opts{connect},
+		connect_admin         => undef,
 		cache_by_dn           => {},
 		time_cached_by_dn     => {},
 		cache_by_search       => {},
 		time_cached_by_search => {},
 		start_time            => [gettimeofday],
+		enable_ad_lockout     => 0,
+		enable_ad_disable     => 0,
 		stats                 => {
 			hits        => 0,
 			misses      => 0,
@@ -104,6 +117,8 @@ sub new {
 				list_searches => 0,
 				stats         => 0,
 				unknown       => 0,
+				ad_lockout    => 0,
+				ad_disable    => 0,
 			},
 			command_time => {
 				fetch         => 0,
@@ -111,6 +126,8 @@ sub new {
 				list_searches => 0,
 				stats         => 0,
 				unknown       => 0,
+				ad_lockout    => 0,
+				ad_disable    => 0,
 			},
 			error_time         => 0,
 			decode_fail        => 0,
@@ -122,10 +139,20 @@ sub new {
 	};
 	bless $self;
 
-	my @to_merge = ( 'pid', 'socket', 'base_search', 'cache_time', );
+	my @to_merge
+		= ( 'pid', 'socket', 'base_search', 'cache_time', 'enable_ad_lockout', 'enable_ad_disable', 'connect_admin' );
 	foreach my $item (@to_merge) {
 		if ( defined( $opts{$item} ) ) {
 			$self->{$item} = $opts{$item};
+		}
+	}
+
+	if ( $self->{enable_ad_disable} || $self->{enable_ad_lockout} ) {
+		if ( !defined( $self->{connect_admin} ) ) {
+			die('"connect_admin is undef"');
+		}
+		if ( reF( $self->{connect_admin} ) ne 'ARRAY' ) {
+			die( '"connect_admin" is ref type ' . reF( $self->{connect_admin} ) . ' and not ARRAY' );
 		}
 	}
 
@@ -494,6 +521,104 @@ sub server_session_input {
 		$heap->{self}{stats}{command_time}{stats}
 			= $heap->{self}{stats}{command_time}{stats} + tv_interval( $t0, [gettimeofday] );
 		return;
+	} elsif ( $json->{command} eq 'ad_disable' ) {
+		if ( !$heap->{self}{enable_ad_disable} ) {
+			$heap->{self}{stats}{already_processing}++;
+			my $error = { status => 'error', error => 'enable_ad_disable is false' };
+			$heap->{client}->put( encode_json($error) );
+			$heap->{self}{stats}{error_time} = $heap->{self}{stats}{error_time} + tv_interval( $t0, [gettimeofday] );
+			return;
+		}
+
+		if ( !defined( $json->{dn} ) ) {
+			$heap->{self}{stats}{already_processing}++;
+			my $error = { status => 'error', error => 'dn is undef, should be the full DN for the account to disable' };
+			$heap->{client}->put( encode_json($error) );
+			$heap->{self}{stats}{error_time} = $heap->{self}{stats}{error_time} + tv_interval( $t0, [gettimeofday] );
+			return;
+		} elsif ( ref( $json->{dn} ) ne '' ) {
+			$heap->{self}{stats}{already_processing}++;
+			my $error = { status => 'error', error => 'dn is is ref type ' . ref( $json->{dn} ) . ' and not ""' };
+			$heap->{client}->put( encode_json($error) );
+			$heap->{self}{stats}{error_time} = $heap->{self}{stats}{error_time} + tv_interval( $t0, [gettimeofday] );
+			return;
+		}
+
+		$heap->{processing} = 1;
+		$heap->{self}{stats}{processing}++;
+		$heap->{self}{stats}{commands}{ad_disable}++;
+
+		my $search = '(useracountcontrol=*)';
+
+		POE::Session->create(
+			inline_states => {
+				_start           => \&fetch_start,
+				got_child_stdout => \&fetch_child_stdout,
+				got_child_stderr => \&fetch_child_stderr,
+				got_child_close  => \&fetch_child_close,
+				got_child_signal => \&fetch_child_signal,
+			},
+			heap => {
+				self         => $heap->{self},
+				client       => $heap->{client},
+				session_heap => $heap,
+				stdout       => '',
+				stderr       => '',
+				search       => $search,
+				dn           => $json->{dn},
+				type         => 'ad_disable',
+				t0           => $t0,
+			},
+		);
+	} elsif ( $json->{command} eq 'ad_lockout' ) {
+		if ( !$heap->{self}{enable_ad_lockout} ) {
+			$heap->{self}{stats}{already_processing}++;
+			my $error = { status => 'error', error => 'enable_ad_lockout is false' };
+			$heap->{client}->put( encode_json($error) );
+			$heap->{self}{stats}{error_time} = $heap->{self}{stats}{error_time} + tv_interval( $t0, [gettimeofday] );
+			return;
+		}
+
+		if ( !defined( $json->{dn} ) ) {
+			$heap->{self}{stats}{already_processing}++;
+			my $error = { status => 'error', error => 'dn is undef, should be the full DN for the account to lockout' };
+			$heap->{client}->put( encode_json($error) );
+			$heap->{self}{stats}{error_time} = $heap->{self}{stats}{error_time} + tv_interval( $t0, [gettimeofday] );
+			return;
+		} elsif ( ref( $json->{dn} ) ne '' ) {
+			$heap->{self}{stats}{already_processing}++;
+			my $error = { status => 'error', error => 'dn is is ref type ' . ref( $json->{dn} ) . ' and not ""' };
+			$heap->{client}->put( encode_json($error) );
+			$heap->{self}{stats}{error_time} = $heap->{self}{stats}{error_time} + tv_interval( $t0, [gettimeofday] );
+			return;
+		}
+
+		$heap->{processing} = 1;
+		$heap->{self}{stats}{processing}++;
+		$heap->{self}{stats}{commands}{ad_lockout}++;
+
+		my $search = '(useracountcontrol=*)';
+
+		POE::Session->create(
+			inline_states => {
+				_start           => \&fetch_start,
+				got_child_stdout => \&fetch_child_stdout,
+				got_child_stderr => \&fetch_child_stderr,
+				got_child_close  => \&fetch_child_close,
+				got_child_signal => \&fetch_child_signal,
+			},
+			heap => {
+				self         => $heap->{self},
+				client       => $heap->{client},
+				session_heap => $heap,
+				stdout       => '',
+				stderr       => '',
+				search       => $search,
+				dn           => $json->{dn},
+				type         => 'ad_disable',
+				t0           => $t0,
+			},
+		);
 	} else {
 		$heap->{self}{stats}{commands}{unknown}++;
 		my $results = { status => 'unknown command', };
@@ -523,9 +648,17 @@ sub server_session_error {
 sub fetch_start {
 	my ( $kernel, $heap ) = @_[ KERNEL, HEAP ];
 
-	my @args = ( "ldapsearch", '-LL' );
-	foreach my $item ( @{ $heap->{session_heap}{self}{connect} } ) {
+	my @args         = ( "ldapsearch", '-LL' );
+	my $connect_type = 'connect';
+	if ( $heap->{search} eq 'ad_disable' || $heap->{search} eq 'ad_disable' ) {
+		$connect_type = 'connect_admin';
+	}
+	foreach my $item ( @{ $heap->{session_heap}{self}{$connect_type} } ) {
 		push( @args, $item );
+	}
+
+	if ( $heap->{search} eq 'ad_disable' || $heap->{search} eq 'ad_disable' ) {
+		push( @args, '-b', $heap->{dn}, '-s', 'one' );
 	}
 
 	push( @args, '(&' . $heap->{session_heap}{self}{base_search} . $heap->{search} . ')' );
