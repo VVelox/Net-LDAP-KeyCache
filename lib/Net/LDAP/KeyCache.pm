@@ -659,7 +659,7 @@ sub fetch_start {
 	}
 
 	if ( $heap->{type} eq 'ad_disable' || $heap->{type} eq 'ad_disable' ) {
-		push( @args, '-b', $heap->{dn}, '-s', 'one' );
+		push( @args, '-b', $heap->{dn}, '-s', 'base' );
 	}
 
 	push( @args, '(&' . $heap->{session_heap}{self}{base_search} . $heap->{search} . ')' );
