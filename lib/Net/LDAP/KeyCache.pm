@@ -757,9 +757,9 @@ sub fetch_child_close {
 				} elsif ( defined( $UserAccountControl_value->[0] ) ) {
 					my $new_value = $UserAccountControl_value->[0];
 					if ( $_[HEAP]{type} eq 'ad_disable' ) {
-						$new_value = $new_value ^ 0x0002;
+						$new_value = $new_value | 0x0002;
 					} elsif ( $_[HEAP]{type} eq 'ad_lockout' ) {
-						$new_value = $new_value ^ 0x0010;
+						$new_value = $new_value | 0x0010;
 					}
 					my $update_entry_string
 						= 'DN: '
