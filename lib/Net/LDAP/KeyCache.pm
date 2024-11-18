@@ -766,9 +766,11 @@ sub fetch_child_close {
 						. canonical_dn( $last_entry->dn )
 						. "\nchangetype: modify\nreplace: UserAccountControl\nUserAccountControl: "
 						. $new_value . "\n";
-					print $update_entry_string."\n";
 					my $results = {
 								   status              => 'ok',
+								   ldif => $update_entry_string,
+								   new_value=>$new_value,
+								   old_value=>$UserAccountControl_value->[0],
 								   };
 					my $json = JSON->new->utf8(1);
 					$_[HEAP]{session_heap}{client}->put( $json->encode($results) );
