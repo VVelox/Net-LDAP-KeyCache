@@ -549,7 +549,7 @@ sub server_session_input {
 		$heap->{self}{stats}{processing}++;
 		$heap->{self}{stats}{commands}{ad_disable}++;
 
-		my $search = '(useracountcontrol=*)';
+		my $search = '(useraccountcontrol=*)';
 
 		POE::Session->create(
 			inline_states => {
@@ -598,7 +598,7 @@ sub server_session_input {
 		$heap->{self}{stats}{processing}++;
 		$heap->{self}{stats}{commands}{ad_lockout}++;
 
-		my $search = '(useracountcontrol=*)';
+		my $search = '(useraccountcontrol=*)';
 
 		POE::Session->create(
 			inline_states => {
