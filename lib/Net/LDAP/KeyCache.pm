@@ -286,7 +286,7 @@ sub server_session_input {
 	# set the default value for nc if needed
 	if ( defined( $json->{nc} ) && ref( $json->{nc} ) != '' ) {
 		$json->{nc} = 0;
-	} elsif ( $json->{nc} ne '0' && $json->{nc} ne '1' ) {
+	} elsif ( !defined($json->{nc}) || $json->{nc} ne '0' && $json->{nc} ne '1' ) {
 		$json->{nc} = 0;
 	}
 
@@ -832,9 +832,9 @@ sub fetch_child_close {
 		return;
 	}
 
-	$$_[HEAP]{session_heap}{self}{stats}{command_time}{ $_[HEAP]{session_heap}{type} }
-		= $$_[HEAP]{session_heap}{self}{stats}{command_time}{ $_[HEAP]{session_heap}{type} }
-		+ tv_interval( $_[HEAP]{session_heap}{t0}, [gettimeofday] );
+	$$_[HEAP]{session_heap}{self}{stats}{command_time}{ $_[HEAP]{type} }
+		= $$_[HEAP]{session_heap}{self}{stats}{command_time}{ $_[HEAP]{type} }
+		+ tv_interval( $_[HEAP]{t0}, [gettimeofday] );
 
 	#print "pid ", $child->PID, " closed all pipes.\n";
 	delete $_[HEAP]{children_by_pid}{ $child->PID };
