@@ -125,8 +125,8 @@ GetOptions(
 	'ls'         => \$list_searches,
 	'nc'         => \$no_cache,
 	'd=s'        => \@drop,
-	'ad_disable' => \$ad_disable,
-	'ad_lockout' => \$ad_lockout,
+	'ad_disable=s' => \$ad_disable,
+	'ad_lockout=s' => \$ad_lockout,
 );
 
 if ($version) {
