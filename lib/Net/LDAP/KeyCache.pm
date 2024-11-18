@@ -152,7 +152,7 @@ sub new {
 		if ( !defined( $self->{connect_admin} ) ) {
 			die('"connect_admin is undef"');
 		}
-		if ( reF( $self->{connect_admin} ) ne 'ARRAY' ) {
+		if ( ref( $self->{connect_admin} ) ne 'ARRAY' ) {
 			die( '"connect_admin" is ref type ' . reF( $self->{connect_admin} ) . ' and not ARRAY' );
 		}
 	}

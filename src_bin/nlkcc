@@ -14,9 +14,9 @@ nlkcc B<--stats> [B<--socket> <sock>] [B<-V>]
 
 nlkcc B<--ls> [B<--socket> <sock>] [B<-V>]
 
-nlkcc B<--ad_disable_ad> <dn>
+nlkcc B<--ad_disable> <dn>
 
-nlkcc B<--ad_lockout_ad> <dn>
+nlkcc B<--ad_lockout> <dn>
 
 nlkcc B<--version>
 
