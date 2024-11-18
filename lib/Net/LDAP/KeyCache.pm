@@ -767,6 +767,11 @@ sub fetch_child_close {
 						. "\nchangetype: modify\nreplace: UserAccountControl\nUserAccountControl: "
 						. $new_value . "\n";
 					print $update_entry_string."\n";
+					my $results = {
+								   status              => 'ok',
+								   };
+					my $json = JSON->new->utf8(1);
+					$_[HEAP]{session_heap}{client}->put( $json->encode($results) );
 				} ## end elsif ( defined( $UserAccountControl_value->[...]))
 			} else {
 				my $error = { status => 'error', error => 'No UserAccountControl found.' };
