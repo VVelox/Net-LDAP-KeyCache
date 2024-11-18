@@ -16,6 +16,7 @@ use Clone;
 use Time::HiRes qw( usleep ualarm gettimeofday tv_interval nanosleep
 	clock_gettime clock_getres clock_nanosleep clock
 	stat lstat utime);
+use Net::LDAP::Util qw(canonical_dn);
 
 =head1 NAME
 
@@ -615,7 +616,7 @@ sub server_session_input {
 				stderr       => '',
 				search       => $search,
 				dn           => $json->{dn},
-				type         => 'ad_disable',
+				type         => 'ad_lockout',
 				t0           => $t0,
 			},
 		);
@@ -650,14 +651,14 @@ sub fetch_start {
 
 	my @args         = ( "ldapsearch", '-LL' );
 	my $connect_type = 'connect';
-	if ( $heap->{search} eq 'ad_disable' || $heap->{search} eq 'ad_disable' ) {
+	if ( $heap->{type} eq 'ad_disable' || $heap->{type} eq 'ad_disable' ) {
 		$connect_type = 'connect_admin';
 	}
 	foreach my $item ( @{ $heap->{session_heap}{self}{$connect_type} } ) {
 		push( @args, $item );
 	}
 
-	if ( $heap->{search} eq 'ad_disable' || $heap->{search} eq 'ad_disable' ) {
+	if ( $heap->{type} eq 'ad_disable' || $heap->{type} eq 'ad_disable' ) {
 		push( @args, '-b', $heap->{dn}, '-s', 'one' );
 	}
 
@@ -705,6 +706,7 @@ sub fetch_child_close {
 	my $search = $_[HEAP]{search};
 	$_[HEAP]{self}{time_cached_by_search}{$search} = $time;
 	my $found = 0;
+	my $last_entry;
 	eval {
 		my ( $fh, $filename ) = tempfile();
 		print $fh $_[HEAP]{stdout};
@@ -718,6 +720,8 @@ sub fetch_child_close {
 			my $entry_hash = {};
 
 			if ( defined($entry) ) {
+				$last_entry = $entry;
+
 				foreach my $attribute ( $entry->attributes ) {
 					$entry_hash->{$attribute} = $entry->get_value( $attribute, nooptions => 1, asref => 1 );
 				}
@@ -737,45 +741,85 @@ sub fetch_child_close {
 		$_[HEAP]{session_heap}{client}->put( encode_json($error) );
 	}
 
-	eval {
-		my $json = JSON->new->utf8(1);
-		if ( $found > 0 ) {
-			my $results = {
-				status              => 'ok',
-				results             => $_[HEAP]{self}{cache_by_search}{$search},
-				from_cache          => 0,
-				cached_at           => $time,
-				cached_to_now_delta => 0
-			};
+	if ( $_[HEAP]{type} eq 'ad_disable' || $_[HEAP]{type} eq 'ad_lockout' ) {
+		if ( $found == 1 ) {
+			my $UserAccountControl_value;
+			foreach my $attribute ( $last_entry->attributes ) {
+				my $lc_attribute = lc($attribute);
+				if ( $lc_attribute eq 'useraccountcontrol' ) {
+					$UserAccountControl_value = $last_entry->get_value( $attribute, nooptions => 1, asref => 1 );
+				}
+			}
+			if ( defined($UserAccountControl_value) ) {
+				if ( defined( $UserAccountControl_value->[1] ) ) {
+					my $error = { status => 'error', error => 'Multiple UserAccountControl values found' };
+					$_[HEAP]{session_heap}{client}->put( encode_json($error) );
+				} elsif ( defined( $UserAccountControl_value->[0] ) ) {
+					my $new_value = $UserAccountControl_value->[0];
+					if ( $_[HEAP]{type} eq 'ad_disable' ) {
+						$new_value = $new_value ^ 0x0002;
+					} elsif ( $_[HEAP]{type} eq 'ad_lockout' ) {
+						$new_value = $new_value ^ 0x0010;
+					}
+					my $update_entry_string
+						= 'DN: '
+						. canonical_dn( $last_entry->dn )
+						. "\nchangetype: modify\nreplace: UserAccountControl\nUserAccountControl: "
+						. $new_value . "\n";
+					print $update_entry_string."\n";
+				} ## end elsif ( defined( $UserAccountControl_value->[...]))
+			} else {
+				my $error = { status => 'error', error => 'No UserAccountControl found.' };
+				$_[HEAP]{session_heap}{client}->put( encode_json($error) );
+			}
+		} elsif ( $found > 1 ) {
+			my $error = { status => 'error', error => 'More than one entry returned.' };
+			$_[HEAP]{session_heap}{client}->put( encode_json($error) );
+		} else {
+			my $error = { status => 'error', error => 'No entry found.' };
+			$_[HEAP]{session_heap}{client}->put( encode_json($error) );
+		}
+	} else {
+		eval {
+			my $json = JSON->new->utf8(1);
+			if ( $found > 0 ) {
+				my $results = {
+					status              => 'ok',
+					results             => $_[HEAP]{self}{cache_by_search}{$search},
+					from_cache          => 0,
+					cached_at           => $time,
+					cached_to_now_delta => 0
+				};
 
-			my $return_results = $results;
-			if ( defined( $_[HEAP]{session_heap}{drop}[0] ) ) {
-				$return_results = clone($results);
-				my @drop_check = keys( %{ $return_results->{results} } );
-				foreach my $dn (@drop_check) {
-					foreach my $to_drop ( @{ $_[HEAP]{session_heap}{drop} } ) {
-						if ( ref($to_drop) eq '' ) {
-							if ( defined( $return_results->{results}{$dn}{$to_drop} ) ) {
-								delete( $return_results->{results}{$dn}{$to_drop} );
+				my $return_results = $results;
+				if ( defined( $_[HEAP]{session_heap}{drop}[0] ) ) {
+					$return_results = clone($results);
+					my @drop_check = keys( %{ $return_results->{results} } );
+					foreach my $dn (@drop_check) {
+						foreach my $to_drop ( @{ $_[HEAP]{session_heap}{drop} } ) {
+							if ( ref($to_drop) eq '' ) {
+								if ( defined( $return_results->{results}{$dn}{$to_drop} ) ) {
+									delete( $return_results->{results}{$dn}{$to_drop} );
+								}
 							}
 						}
 					}
-				}
-			} ## end if ( defined( $_[HEAP]{session_heap}{drop}...))
+				} ## end if ( defined( $_[HEAP]{session_heap}{drop}...))
 
-			$_[HEAP]{session_heap}{client}->put( $json->encode($return_results) );
-		} else {
-			my $results = { status => 'ok', results => {} };
-			if ( $_[HEAP]{session_heap}{make_it_pretty} ) {
-				$_[HEAP]{session_heap}{client}->put( $json->encode($results) );
+				$_[HEAP]{session_heap}{client}->put( $json->encode($return_results) );
 			} else {
-				$_[HEAP]{session_heap}{client}->put( $json->encode($results) );
+				my $results = { status => 'ok', results => {} };
+				if ( $_[HEAP]{session_heap}{make_it_pretty} ) {
+					$_[HEAP]{session_heap}{client}->put( $json->encode($results) );
+				} else {
+					$_[HEAP]{session_heap}{client}->put( $json->encode($results) );
+				}
 			}
+		};
+		if ($@) {
+			warn($@);
 		}
-	};
-	if ($@) {
-		warn($@);
-	}
+	} ## end else [ if ( $_[HEAP]{type} eq 'ad_disable' || $_[...])]
 
 	# we are done processing the request at this point
 	$_[HEAP]{session_heap}{processing} = 0;
