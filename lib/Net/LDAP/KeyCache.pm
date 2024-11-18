@@ -832,8 +832,8 @@ sub fetch_child_close {
 		return;
 	}
 
-	$$_[HEAP]{session_heap}{self}{stats}{command_time}{ $_[HEAP]{type} }
-		= $$_[HEAP]{session_heap}{self}{stats}{command_time}{ $_[HEAP]{type} }
+	$_[HEAP]{self}{stats}{command_time}{ $_[HEAP]{type} }
+		= $_[HEAP]{self}{stats}{command_time}{ $_[HEAP]{type} }
 		+ tv_interval( $_[HEAP]{t0}, [gettimeofday] );
 
 	#print "pid ", $child->PID, " closed all pipes.\n";
